@@ -26,10 +26,10 @@ import (
 )
 
 const (
-	dsKindStatConfig  = "StatConfig"
-	scTypeGauge       = "gauge"
-	scTypeCounter     = "counter"
-	aggregationPeriod = time.Duration(5 * time.Minute)
+	dsKindStatConfig         = "StatConfig"
+	scTypeGauge              = "gauge"
+	scTypeCounter            = "counter"
+	defaultAggregationPeriod = time.Duration(5 * time.Minute)
 )
 
 type gaugeMetrics []gaugeMetric
@@ -43,17 +43,18 @@ type StatConfig struct {
 	Name     string    `datastore:",noindex" json:"name"`
 	Source   string    `datastore:",noindex" json:"source"`
 	Type     string    `datastore:",noindex" json:"type"`
+	Period   int64     `datastore:",noindex" json:"period"`
 	LastRead time.Time `json:"lastread"`
 }
 
 func (sc StatConfig) String() string {
-	return fmt.Sprintf("[StatConfig] name=%s, source=%s, type=%s, lastread=%s",
-		sc.Name, sc.Source, sc.Type, sc.LastRead)
+	return fmt.Sprintf("[StatConfig] name=%s, source=%s, type=%s, period=%s, lastread=%s",
+		sc.Name, sc.Source, sc.Type, sc.Period, sc.LastRead)
 }
 
 func (sc StatConfig) BucketKey(t time.Time) string {
 	return fmt.Sprintf("statstash-metric:%s-%s-%s",
-		sc.Name, sc.Source, t.Truncate(aggregationPeriod).Unix())
+		sc.Name, sc.Source, t.Truncate(time.Duration(sc.Period)).Unix())
 }
 
 // StatInterface defines the interface for the application to
@@ -145,7 +146,7 @@ func (s StatInterfaceImplementation) RecordGauge(name, source string, value inte
 		newItem := &memcache.Item{
 			Key:        bucketKey,
 			Object:     &cachedMetrics,
-			Expiration: time.Duration(2 * aggregationPeriod),
+			Expiration: time.Duration(2 * defaultAggregationPeriod),
 		}
 		if err := memcache.JSON.Add(s.c, newItem); err == nil {
 			return nil
@@ -199,6 +200,7 @@ func (s StatInterfaceImplementation) getStatConfig(name, source, typ string) (St
 		sc.Source = source
 		sc.Type = typ
 		sc.LastRead = now
+		sc.Period = int64(defaultAggregationPeriod)
 		updateNeeded = true
 	} else {
 		if now.Sub(sc.LastRead) >= time.Duration(2*24*time.Hour) {
@@ -210,7 +212,7 @@ func (s StatInterfaceImplementation) getStatConfig(name, source, typ string) (St
 	// Store item in datastore if it needed the update
 	if updateNeeded {
 		if _, err := datastore.Put(s.c, k, &sc); err != nil {
-			s.c.Warningf("Failed to update StatConfig %s", sc)
+			s.c.Warningf("Failed to update StatConfig %s: %s", sc, err)
 			cache = false
 		}
 	}
