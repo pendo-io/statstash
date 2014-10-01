@@ -117,7 +117,7 @@ func (s StatInterfaceImplementation) RecordGauge(name, source string, value inte
 
 	for tries := 0; tries < 5; tries++ {
 		cachedItem, err := memcache.JSON.Get(s.c, bucketKey, &cachedMetrics)
-		if err != memcache.ErrCacheMiss {
+		if err == memcache.ErrCacheMiss {
 			cachedMetrics = make(gaugeMetrics, 0)
 		} else if err != nil {
 			// give up fast because something is wrong with memcache, probably
