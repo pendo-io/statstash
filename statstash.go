@@ -21,6 +21,7 @@ import (
 	"appengine/datastore"
 	"appengine/memcache"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -84,6 +85,22 @@ func (s StatInterfaceImplementation) IncrementCounterBy(name, source string, del
 	}
 
 	return err
+}
+
+func (s StatInterfaceImplementation) peekCounter(name, source string) (uint64, error) {
+	statConfig, err := s.getStatConfig(name, source, scTypeCounter)
+	if err != nil {
+		return uint64(0), err
+	}
+
+	now := time.Now()
+	bucketKey := statConfig.BucketKey(now)
+
+	if item, err := memcache.Get(s.c, bucketKey); err == nil {
+		return strconv.ParseUint(string(item.Value), 10, 64)
+	} else {
+		return uint64(0), err
+	}
 }
 
 func (s StatInterfaceImplementation) RecordGauge(name, source string, value interface{}) error {
