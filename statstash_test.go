@@ -18,6 +18,7 @@ package statstash
 
 import (
 	. "gopkg.in/check.v1"
+	"time"
 )
 
 func (s *StatStashTest) TestStatCounters(c *C) {
@@ -31,20 +32,52 @@ func (s *StatStashTest) TestStatCounters(c *C) {
 	c.Assert(ssi.IncrementCounter("bar", ""), IsNil)
 	c.Assert(ssi.IncrementCounterBy("bar", "", int64(10)), IsNil)
 
+	now := time.Now()
+
 	// at this point
 	// foo, a = 2
-	fooA, err := ssi.peekCounter("foo", "a")
+
+	fooA, err := ssi.peekCounter("foo", "a", now)
 	c.Assert(err, IsNil)
 	c.Check(fooA, Equals, uint64(2))
 
 	// foo, b = 1
-	fooB, err := ssi.peekCounter("foo", "b")
+	fooB, err := ssi.peekCounter("foo", "b", now)
 	c.Assert(err, IsNil)
 	c.Check(fooB, Equals, uint64(1))
 
 	// bar = 1
-	bar, err := ssi.peekCounter("bar", "")
+	bar, err := ssi.peekCounter("bar", "", now)
 	c.Assert(err, IsNil)
 	c.Check(bar, Equals, uint64(12))
+
+}
+
+func (s *StatStashTest) TestStatGauges(c *C) {
+
+	ssi := StatInterfaceImplementation{s.Context}
+
+	c.Assert(ssi.RecordGauge("temperature", "raleigh", 24.0), IsNil)
+	c.Assert(ssi.RecordGauge("temperature", "anchorage", 10.0), IsNil)
+	c.Assert(ssi.RecordGauge("temperature", "anchorage", 15.5), IsNil)
+	c.Assert(ssi.RecordGauge("world_population", "", 7264534001), IsNil)
+
+	now := time.Now()
+
+	tempRaleighMetrics, err := ssi.peekGauge("temperature", "raleigh", now)
+	c.Assert(err, IsNil)
+	c.Assert(tempRaleighMetrics, HasLen, 1)
+	c.Check(tempRaleighMetrics[0].Value, Equals, 24.0)
+
+	tempAnchorageMetrics, err := ssi.peekGauge("temperature", "anchorage", now)
+	c.Assert(err, IsNil)
+	c.Assert(tempAnchorageMetrics, HasLen, 2)
+	c.Check(tempAnchorageMetrics[0].Value, Equals, 10.0)
+	c.Check(tempAnchorageMetrics[1].Value, Equals, 15.5)
+
+	worldPop, err := ssi.peekGauge("world_population", "", now)
+	c.Assert(err, IsNil)
+	c.Assert(worldPop, HasLen, 1)
+	c.Check(worldPop[0].Value, Equals, float64(7264534001))
 
 }
