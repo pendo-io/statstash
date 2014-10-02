@@ -35,7 +35,7 @@ var _ = check.Suite(&StatStashTest{})
 func TestStatStash(t *testing.T) { check.TestingT(t) }
 
 func (s *StatStashTest) SetUpSuite(c *check.C) {
-	if context, err := aetest.NewContext(nil); err != nil {
+	if context, err := aetest.NewContext(&aetest.Options{StronglyConsistentDatastore: true}); err != nil {
 		c.Fatal(err)
 	} else {
 		s.Context = context
