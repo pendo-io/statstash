@@ -80,4 +80,14 @@ func (s *StatStashTest) TestStatGauges(c *C) {
 	c.Assert(worldPop, HasLen, 1)
 	c.Check(worldPop[0].Value, Equals, float64(7264534001))
 
+	for i := 0; i < 100; i++ {
+		c.Assert(ssi.RecordGauge("upandtotheright", "", i), IsNil)
+	}
+
+	upAndToTheRight, err := ssi.peekGauge("upandtotheright", "", now)
+	c.Assert(err, IsNil)
+	for i, metric := range upAndToTheRight {
+		c.Check(metric.Value, Equals, float64(i))
+	}
+
 }
