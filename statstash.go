@@ -20,7 +20,6 @@ import (
 	"appengine"
 	"appengine/datastore"
 	"appengine/memcache"
-	"encoding/gob"
 	"fmt"
 	"strconv"
 	"time"
@@ -429,9 +428,4 @@ func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg FlusherConfig) error 
 // LibratoStatsFlusher is used to flush stats to the Librato metrics service.
 type LibratoStatsFlusher struct {
 	c appengine.Context
-}
-
-func init() {
-	gob.Register(GaugeMeasurement{})
-	gob.Register([]GaugeMeasurement{})
 }
