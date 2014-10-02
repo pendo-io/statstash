@@ -17,7 +17,10 @@
 package statstash
 
 import (
+	"appengine/memcache"
+	"fmt"
 	. "gopkg.in/check.v1"
+	"strings"
 	"time"
 )
 
@@ -50,6 +53,8 @@ func (s *StatStashTest) TestStatCounters(c *C) {
 	bar, err := ssi.peekCounter("bar", "", now)
 	c.Assert(err, IsNil)
 	c.Check(bar, Equals, uint64(12))
+
+	c.Assert(memcache.Flush(s.Context), IsNil)
 
 }
 
@@ -89,5 +94,34 @@ func (s *StatStashTest) TestStatGauges(c *C) {
 	for i, metric := range upAndToTheRight {
 		c.Check(metric.Value, Equals, float64(i))
 	}
+
+	c.Assert(memcache.Flush(s.Context), IsNil)
+
+}
+
+func (s *StatStashTest) TestGetActiveBuckets(c *C) {
+
+	ssi := StatInterfaceImplementation{s.Context}
+
+	c.Assert(ssi.IncrementCounter("foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("foo", "b"), IsNil)
+	c.Assert(ssi.IncrementCounter("bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounter("bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounterBy("bar", "", int64(10)), IsNil)
+
+	now := time.Now()
+	bucketTs := now.Truncate(time.Duration(defaultAggregationPeriod)).Unix()
+
+	bucketList, err := ssi.GetActiveBuckets(now)
+	c.Assert(err, IsNil)
+	c.Assert(bucketList, HasLen, 3)
+
+	bucketlistCSV := strings.Join(bucketList, ",")
+	c.Check(bucketlistCSV, Matches, fmt.Sprintf(".*counter-foo-a-%d.*", bucketTs))
+	c.Check(bucketlistCSV, Matches, fmt.Sprintf(".*counter-foo-b-%d.*", bucketTs))
+	c.Check(bucketlistCSV, Matches, fmt.Sprintf(".*counter-bar--%d.*", bucketTs))
+
+	c.Assert(memcache.Flush(s.Context), IsNil)
 
 }

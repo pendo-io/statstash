@@ -53,8 +53,8 @@ func (sc StatConfig) String() string {
 }
 
 func (sc StatConfig) BucketKey(t time.Time) string {
-	return fmt.Sprintf("statstash-metric:%s-%s-%s",
-		sc.Name, sc.Source, t.Truncate(time.Duration(sc.Period)).Unix())
+	return fmt.Sprintf("ss-metric:%s-%s-%s-%d",
+		sc.Type, sc.Name, sc.Source, t.Truncate(time.Duration(sc.Period)).Unix())
 }
 
 // StatInterface defines the interface for the application to
@@ -62,6 +62,7 @@ type StatInterface interface {
 	IncrementCounter(name, source string) error
 	IncrementCounterBy(name, source string, delta int64) error
 	RecordGauge(name, source string, value interface{}) error
+	GetActiveBuckets(at time.Time) ([]string, error)
 }
 
 type StatInterfaceImplementation struct {
@@ -73,13 +74,11 @@ func (s StatInterfaceImplementation) IncrementCounter(name, source string) error
 }
 
 func (s StatInterfaceImplementation) IncrementCounterBy(name, source string, delta int64) error {
-	statConfig, err := s.getStatConfig(name, source, scTypeCounter)
+
+	bucketKey, err := s.getBucketName(scTypeCounter, name, source, time.Now())
 	if err != nil {
 		return err
 	}
-
-	now := time.Now()
-	bucketKey := statConfig.BucketKey(now)
 
 	if _, err = memcache.Increment(s.c, bucketKey, delta, 0); err != nil {
 		s.c.Warningf("Failed to increment %s delta %d", bucketKey, delta)
@@ -89,12 +88,11 @@ func (s StatInterfaceImplementation) IncrementCounterBy(name, source string, del
 }
 
 func (s StatInterfaceImplementation) peekCounter(name, source string, at time.Time) (uint64, error) {
-	statConfig, err := s.getStatConfig(name, source, scTypeCounter)
+
+	bucketKey, err := s.getBucketName(scTypeCounter, name, source, time.Now())
 	if err != nil {
 		return uint64(0), err
 	}
-
-	bucketKey := statConfig.BucketKey(at)
 
 	if item, err := memcache.Get(s.c, bucketKey); err == nil {
 		return strconv.ParseUint(string(item.Value), 10, 64)
@@ -104,12 +102,12 @@ func (s StatInterfaceImplementation) peekCounter(name, source string, at time.Ti
 }
 
 func (s StatInterfaceImplementation) peekGauge(name, source string, at time.Time) (gaugeMetrics, error) {
-	statConfig, err := s.getStatConfig(name, source, scTypeCounter)
+
+	bucketKey, err := s.getBucketName(scTypeGauge, name, source, time.Now())
 	if err != nil {
 		return nil, err
 	}
 
-	bucketKey := statConfig.BucketKey(at)
 	var gm gaugeMetrics
 	if _, err = memcache.JSON.Get(s.c, bucketKey, &gm); err != nil {
 		return nil, err
@@ -119,13 +117,12 @@ func (s StatInterfaceImplementation) peekGauge(name, source string, at time.Time
 }
 
 func (s StatInterfaceImplementation) RecordGauge(name, source string, value interface{}) error {
-	statConfig, err := s.getStatConfig(name, source, scTypeGauge)
+
+	now := time.Now()
+	bucketKey, err := s.getBucketName(scTypeGauge, name, source, now)
 	if err != nil {
 		return err
 	}
-
-	now := time.Now()
-	bucketKey := statConfig.BucketKey(now)
 
 	var cachedMetrics gaugeMetrics
 
@@ -177,31 +174,63 @@ func (s StatInterfaceImplementation) RecordGauge(name, source string, value inte
 
 }
 
-func (s StatInterfaceImplementation) getStatConfigKeyName(name, source string) string {
-	if source != "" {
-		return fmt.Sprintf("%s-%s", name, source)
+func (s StatInterfaceImplementation) GetActiveBuckets(at time.Time) ([]string, error) {
+
+	cutoffTime := at.Add(time.Duration(time.Hour * 24 * -2))
+
+	bucketList := make([]string, 0)
+
+	var finalError error
+	q := datastore.NewQuery(dsKindStatConfig).Filter("LastRead >", cutoffTime)
+	iter := q.Run(s.c)
+	for {
+		var sc StatConfig
+		_, err := iter.Next(&sc)
+		if err == datastore.Done {
+			break // end of iteration
+		} else if err != nil {
+			s.c.Warningf("Failed iterating stat config items to get active buckets: %s", err)
+			finalError = err
+			break
+		}
+
+		bucketList = append(bucketList, sc.BucketKey(at))
+
 	}
-	return name
+	return bucketList, finalError
 }
 
-func (s StatInterfaceImplementation) getStatConfigMemcacheKey(name, source string) string {
-	return fmt.Sprintf("statstash-conf:%s", s.getStatConfigKeyName(name, source))
+func (s StatInterfaceImplementation) getBucketName(typ, name, source string, at time.Time) (string, error) {
+	statConfig, err := s.getStatConfig(typ, name, source)
+	if err != nil {
+		return "", err
+	}
+
+	return statConfig.BucketKey(at), nil
 }
 
-func (s StatInterfaceImplementation) getStatConfigDatastoreKey(name, source string) *datastore.Key {
-	return datastore.NewKey(s.c, dsKindStatConfig, s.getStatConfigKeyName(name, source), 0, nil)
+func (s StatInterfaceImplementation) getStatConfigKeyName(typ, name, source string) string {
+	return fmt.Sprintf("%s-%s-%s", typ, name, source)
 }
 
-func (s StatInterfaceImplementation) getStatConfig(name, source, typ string) (StatConfig, error) {
+func (s StatInterfaceImplementation) getStatConfigMemcacheKey(typ, name, source string) string {
+	return fmt.Sprintf("statstash-conf:%s", s.getStatConfigKeyName(typ, name, source))
+}
+
+func (s StatInterfaceImplementation) getStatConfigDatastoreKey(typ, name, source string) *datastore.Key {
+	return datastore.NewKey(s.c, dsKindStatConfig, s.getStatConfigKeyName(typ, name, source), 0, nil)
+}
+
+func (s StatInterfaceImplementation) getStatConfig(typ, name, source string) (StatConfig, error) {
 
 	var sc StatConfig
 
 	// First, query memcache
-	if _, err := memcache.JSON.Get(s.c, s.getStatConfigMemcacheKey(name, source), &sc); err == nil {
+	if _, err := memcache.JSON.Get(s.c, s.getStatConfigMemcacheKey(typ, name, source), &sc); err == nil {
 		return sc, nil
 	}
 
-	k := s.getStatConfigDatastoreKey(name, source)
+	k := s.getStatConfigDatastoreKey(typ, name, source)
 	now := time.Now()
 	updateNeeded := false
 	cache := true
@@ -234,7 +263,7 @@ func (s StatInterfaceImplementation) getStatConfig(name, source, typ string) (St
 	// Only attempt adding if the update was needed and succeeded
 	if cache {
 		memcache.JSON.Add(s.c, &memcache.Item{
-			Key:        s.getStatConfigMemcacheKey(name, source),
+			Key:        s.getStatConfigMemcacheKey(typ, name, source),
 			Object:     &sc,
 			Expiration: time.Duration(24 * time.Hour),
 		})
