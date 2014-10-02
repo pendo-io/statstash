@@ -17,44 +17,62 @@
 package statstash
 
 import (
-	"appengine/memcache"
 	"fmt"
+	"github.com/stretchr/testify/mock"
 	. "gopkg.in/check.v1"
-	"strings"
 	"time"
 )
+
+type MockFlusher struct {
+	mock.Mock
+	counters []StatDataCounter
+	gauges   []StatDataGauge
+}
+
+func (m *MockFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
+	rargs := m.Called(data, cfg)
+	m.counters = make([]StatDataCounter, 0)
+	m.gauges = make([]StatDataGauge, 0)
+	for i := range data {
+		switch data[i].(type) {
+		case StatDataCounter:
+			m.counters = append(m.counters, data[i].(StatDataCounter))
+		case StatDataGauge:
+			m.gauges = append(m.gauges, data[i].(StatDataGauge))
+		}
+	}
+	return rargs.Error(0)
+}
 
 func (s *StatStashTest) TestStatCounters(c *C) {
 
 	ssi := StatInterfaceImplementation{s.Context}
 
-	c.Assert(ssi.IncrementCounter("foo", "a"), IsNil)
-	c.Assert(ssi.IncrementCounter("foo", "a"), IsNil)
-	c.Assert(ssi.IncrementCounter("foo", "b"), IsNil)
-	c.Assert(ssi.IncrementCounter("bar", ""), IsNil)
-	c.Assert(ssi.IncrementCounter("bar", ""), IsNil)
-	c.Assert(ssi.IncrementCounterBy("bar", "", int64(10)), IsNil)
+	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "b"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestStatCounters.bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounter("TestStatCounters.bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounterBy("TestStatCounters.bar", "", int64(10)), IsNil)
 
 	now := time.Now()
 
 	// at this point
 	// foo, a = 2
 
-	fooA, err := ssi.peekCounter("foo", "a", now)
+	fooA, err := ssi.peekCounter("TestStatCounters.foo", "a", now)
 	c.Assert(err, IsNil)
 	c.Check(fooA, Equals, uint64(2))
 
 	// foo, b = 1
-	fooB, err := ssi.peekCounter("foo", "b", now)
+	fooB, err := ssi.peekCounter("TestStatCounters.foo", "b", now)
 	c.Assert(err, IsNil)
 	c.Check(fooB, Equals, uint64(1))
 
 	// bar = 1
-	bar, err := ssi.peekCounter("bar", "", now)
+	bar, err := ssi.peekCounter("TestStatCounters.bar", "", now)
 	c.Assert(err, IsNil)
 	c.Check(bar, Equals, uint64(12))
-
-	c.Assert(memcache.Flush(s.Context), IsNil)
 
 }
 
@@ -62,66 +80,98 @@ func (s *StatStashTest) TestStatGauges(c *C) {
 
 	ssi := StatInterfaceImplementation{s.Context}
 
-	c.Assert(ssi.RecordGauge("temperature", "raleigh", 24.0), IsNil)
-	c.Assert(ssi.RecordGauge("temperature", "anchorage", 10.0), IsNil)
-	c.Assert(ssi.RecordGauge("temperature", "anchorage", 15.5), IsNil)
-	c.Assert(ssi.RecordGauge("world_population", "", 7264534001), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauges.temperature", "raleigh", 24.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauges.temperature", "anchorage", 10.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauges.temperature", "anchorage", 15.5), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauges.world_population", "", 7264534001), IsNil)
 
 	now := time.Now()
 
-	tempRaleighMetrics, err := ssi.peekGauge("temperature", "raleigh", now)
+	tempRaleighMetrics, err := ssi.peekGauge("TestStatGauges.temperature", "raleigh", now)
 	c.Assert(err, IsNil)
 	c.Assert(tempRaleighMetrics, HasLen, 1)
 	c.Check(tempRaleighMetrics[0].Value, Equals, 24.0)
 
-	tempAnchorageMetrics, err := ssi.peekGauge("temperature", "anchorage", now)
+	tempAnchorageMetrics, err := ssi.peekGauge("TestStatGauges.temperature", "anchorage", now)
 	c.Assert(err, IsNil)
 	c.Assert(tempAnchorageMetrics, HasLen, 2)
 	c.Check(tempAnchorageMetrics[0].Value, Equals, 10.0)
 	c.Check(tempAnchorageMetrics[1].Value, Equals, 15.5)
 
-	worldPop, err := ssi.peekGauge("world_population", "", now)
+	worldPop, err := ssi.peekGauge("TestStatGauges.world_population", "", now)
 	c.Assert(err, IsNil)
 	c.Assert(worldPop, HasLen, 1)
-	c.Check(worldPop[0].Value, Equals, float64(7264534001))
+	c.Check(worldPop[0].Value, Equals, 7264534001)
 
 	for i := 0; i < 100; i++ {
-		c.Assert(ssi.RecordGauge("upandtotheright", "", i), IsNil)
+		c.Assert(ssi.RecordGauge("TestStatGauges.upandtotheright", "", i), IsNil)
 	}
 
-	upAndToTheRight, err := ssi.peekGauge("upandtotheright", "", now)
+	upAndToTheRight, err := ssi.peekGauge("TestStatGauges.upandtotheright", "", now)
 	c.Assert(err, IsNil)
 	for i, metric := range upAndToTheRight {
-		c.Check(metric.Value, Equals, float64(i))
+		c.Check(metric.Value, Equals, i)
 	}
-
-	c.Assert(memcache.Flush(s.Context), IsNil)
 
 }
 
-func (s *StatStashTest) TestGetActiveBuckets(c *C) {
+func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 
 	ssi := StatInterfaceImplementation{s.Context}
 
-	c.Assert(ssi.IncrementCounter("foo", "a"), IsNil)
-	c.Assert(ssi.IncrementCounter("foo", "a"), IsNil)
-	c.Assert(ssi.IncrementCounter("foo", "b"), IsNil)
-	c.Assert(ssi.IncrementCounter("bar", ""), IsNil)
-	c.Assert(ssi.IncrementCounter("bar", ""), IsNil)
-	c.Assert(ssi.IncrementCounterBy("bar", "", int64(10)), IsNil)
+	c.Assert(ssi.Purge(), IsNil)
+
+	c.Assert(ssi.IncrementCounter("TestGetActiveConfigs.foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestGetActiveConfigs.foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestGetActiveConfigs.foo", "b"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestGetActiveConfigs.bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounter("TestGetActiveConfigs.bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounterBy("TestGetActiveConfigs.bar", "", int64(10)), IsNil)
 
 	now := time.Now()
 	bucketTs := now.Truncate(time.Duration(defaultAggregationPeriod)).Unix()
 
-	bucketList, err := ssi.GetActiveBuckets(now)
+	cfgMap, err := ssi.getActiveConfigs(now)
 	c.Assert(err, IsNil)
-	c.Assert(bucketList, HasLen, 3)
+	c.Assert(cfgMap, HasLen, 3)
 
-	bucketlistCSV := strings.Join(bucketList, ",")
-	c.Check(bucketlistCSV, Matches, fmt.Sprintf(".*counter-foo-a-%d.*", bucketTs))
-	c.Check(bucketlistCSV, Matches, fmt.Sprintf(".*counter-foo-b-%d.*", bucketTs))
-	c.Check(bucketlistCSV, Matches, fmt.Sprintf(".*counter-bar--%d.*", bucketTs))
+	for _, key := range []string{
+		fmt.Sprintf("ss-metric:counter-TestGetActiveConfigs.foo-a-%d", bucketTs),
+		fmt.Sprintf("ss-metric:counter-TestGetActiveConfigs.foo-b-%d", bucketTs),
+		fmt.Sprintf("ss-metric:counter-TestGetActiveConfigs.bar--%d", bucketTs)} {
+		_, found := cfgMap[key]
+		c.Check(found, Equals, true)
+	}
 
-	c.Assert(memcache.Flush(s.Context), IsNil)
+}
+
+func (s *StatStashTest) TestFlushToBackend(c *C) {
+
+	ssi := StatInterfaceImplementation{s.Context}
+
+	mockFlusher := &MockFlusher{}
+
+	c.Assert(ssi.Purge(), IsNil)
+
+	c.Assert(ssi.IncrementCounter("TestFlushToBackend.foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestFlushToBackend.foo", "a"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestFlushToBackend.foo", "b"), IsNil)
+	c.Assert(ssi.IncrementCounter("TestFlushToBackend.bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounter("TestFlushToBackend.bar", ""), IsNil)
+	c.Assert(ssi.IncrementCounterBy("TestFlushToBackend.bar", "", int64(10)), IsNil)
+
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "raleigh", 24.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "anchorage", 10.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "anchorage", 15.5), IsNil)
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.world_population", "", 7264534001), IsNil)
+
+	mockFlusher.On("Flush", mock.Anything, mock.Anything).Return(nil).Once()
+
+	now := time.Now()
+	c.Assert(ssi.UpdateBackend(now, mockFlusher, nil), IsNil)
+	mockFlusher.AssertExpectations(c)
+
+	c.Check(mockFlusher.counters, HasLen, 3)
+	c.Check(mockFlusher.gauges, HasLen, 3)
 
 }
