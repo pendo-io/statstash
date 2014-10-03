@@ -20,6 +20,7 @@ import (
 	"appengine"
 	"appengine/datastore"
 	"appengine/memcache"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -34,6 +35,8 @@ const (
 	defaultAggregationPeriod = time.Duration(5 * time.Minute)
 )
 
+var ErrStatFlushTooSoon = errors.New("Too Soon to Flush Stats")
+
 type StatConfig struct {
 	Name     string    `datastore:",noindex" json:"name"`
 	Source   string    `datastore:",noindex" json:"source"`
@@ -47,7 +50,7 @@ func (sc StatConfig) String() string {
 }
 
 func (sc StatConfig) BucketKey(t time.Time, offset int) string {
-	return fmt.Sprintf("ss-metric:%s-%s-%s-%d", sc.Type, sc.Name, sc.Source, getFlushPeriodStart(t, offset))
+	return fmt.Sprintf("ss-metric:%s-%s-%s-%d", sc.Type, sc.Name, sc.Source, getFlushPeriodStart(t, offset).Unix())
 }
 
 // StatInterface defines the interface for the application to
@@ -89,7 +92,15 @@ func (s StatInterfaceImplementation) RecordTiming(name, source string, value flo
 	return s.recordGaugeOrTiming(scTypeTiming, name, source, value)
 }
 
-func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, flushConfig *FlusherConfig) error {
+func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, flushConfig *FlusherConfig, force bool) error {
+
+	if !force {
+		lastFlushedTime := s.getLastFlushTime()
+		if at.Sub(lastFlushedTime) <= defaultAggregationPeriod {
+			s.c.Warningf("Refusing to update backend since it's too soon (last flushed at %s, aggregation period %s)", lastFlushedTime, defaultAggregationPeriod)
+			return ErrStatFlushTooSoon
+		}
+	}
 
 	cfgMap, err := s.getActiveConfigs(at, 0)
 	if err != nil {
@@ -157,6 +168,8 @@ func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFl
 		if err := flusher.Flush(data, flushConfig); err != nil {
 			s.c.Errorf("Failed to flush to backend: %s", err)
 			return err
+		} else {
+			s.updateLastFlushTime(at)
 		}
 
 	}
@@ -410,12 +423,27 @@ func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source strin
 
 }
 
-func getFlushPeriodStart(at time.Time, offset int) int64 {
+func (s StatInterfaceImplementation) getLastFlushTime() time.Time {
+	var lastUpdated time.Time
+	if _, err := memcache.Gob.Get(s.c, "ss-lft", &lastUpdated); err != nil {
+		return time.Time{}
+	}
+	return lastUpdated
+}
+
+func (s StatInterfaceImplementation) updateLastFlushTime(flushTime time.Time) error {
+	return memcache.Gob.Set(s.c, &memcache.Item{
+		Key:    "ss-lft",
+		Object: &flushTime,
+	})
+}
+
+func getFlushPeriodStart(at time.Time, offset int) time.Time {
 	startOfPeriod := at.Truncate(defaultAggregationPeriod)
 	if offset != 0 {
 		startOfPeriod = startOfPeriod.Add(time.Duration(offset) * defaultAggregationPeriod)
 	}
-	return startOfPeriod.Unix()
+	return startOfPeriod
 }
 
 type Measurement struct {

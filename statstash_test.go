@@ -170,7 +170,7 @@ func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 	c.Assert(ssi.IncrementCounterBy("TestGetActiveConfigs.bar", "", int64(10)), IsNil)
 
 	now := time.Now()
-	bucketTs := getFlushPeriodStart(now, 0)
+	bucketTs := getFlushPeriodStart(now, 0).Unix()
 
 	cfgMap, err := ssi.getActiveConfigs(now, 0)
 	c.Assert(err, IsNil)
@@ -213,7 +213,7 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	mockFlusher.On("Flush", mock.Anything, mock.Anything).Return(nil).Once()
 
 	now := time.Now()
-	c.Assert(ssi.UpdateBackend(now, mockFlusher, nil), IsNil)
+	c.Assert(ssi.UpdateBackend(now, mockFlusher, nil, true), IsNil)
 	mockFlusher.AssertExpectations(c)
 
 	c.Check(mockFlusher.counters, HasLen, 3)
@@ -261,5 +261,8 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 			c.Check(gauge.Value, Equals, -1.2)
 		}
 	}
+
+	// Make sure that flushing again does nothing (i.e. don't force)
+	c.Assert(ssi.UpdateBackend(now, mockFlusher, nil, false), Equals, ErrStatFlushTooSoon)
 
 }
