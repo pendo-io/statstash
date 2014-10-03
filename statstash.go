@@ -21,6 +21,7 @@ import (
 	"appengine/datastore"
 	"appengine/memcache"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 )
@@ -124,7 +125,24 @@ func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFl
 					continue
 				}
 				if cfgItem.Type == scTypeTiming {
-					datum = StatDataTiming{StatConfig: cfgItem, Measurements: gm}
+					var min, max, sum, sumSquares float64
+					count := len(gm)
+					for i, m := range gm {
+						if i == 0 {
+							min = m.Value
+							max = m.Value
+						} else {
+							if m.Value < min {
+								min = m.Value
+							}
+							if m.Value > max {
+								max = m.Value
+							}
+						}
+						sum += m.Value
+						sumSquares += math.Pow(m.Value, 2.0)
+					}
+					datum = StatDataTiming{StatConfig: cfgItem, Count: count, Min: min, Max: max, Sum: sum, SumSquares: sumSquares}
 				} else {
 					datum = StatDataGauge{StatConfig: cfgItem, Value: gm[0].Value}
 				}
@@ -419,12 +437,16 @@ func (dc StatDataCounter) String() string {
 
 type StatDataTiming struct {
 	StatConfig
-	Measurements []Measurement
+	Count      int
+	Min        float64
+	Max        float64
+	Sum        float64
+	SumSquares float64
 }
 
 func (dt StatDataTiming) String() string {
-	return fmt.Sprintf("[Timing: name=%s, source=%s] Measurements: %s",
-		dt.Name, dt.Source, dt.Measurements)
+	return fmt.Sprintf("[Timing: name=%s, source=%s] Count: %d, Min: %f, Max: %f, Sum: %f, SumSquares: %f",
+		dt.Name, dt.Source, dt.Count, dt.Min, dt.Max, dt.Sum, dt.SumSquares)
 }
 
 type StatDataGauge struct {
@@ -462,6 +484,8 @@ func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) error
 			datum = data[i].(StatDataCounter)
 		case StatDataTiming:
 			datum = data[i].(StatDataTiming)
+		case StatDataGauge:
+			datum = data[i].(StatDataGauge)
 		}
 		f.c.Infof("%s", datum)
 	}

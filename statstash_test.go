@@ -27,18 +27,22 @@ type MockFlusher struct {
 	mock.Mock
 	counters []StatDataCounter
 	timings  []StatDataTiming
+	gauges   []StatDataGauge
 }
 
 func (m *MockFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 	rargs := m.Called(data, cfg)
 	m.counters = make([]StatDataCounter, 0)
 	m.timings = make([]StatDataTiming, 0)
+	m.gauges = make([]StatDataGauge, 0)
 	for i := range data {
 		switch data[i].(type) {
 		case StatDataCounter:
 			m.counters = append(m.counters, data[i].(StatDataCounter))
 		case StatDataTiming:
 			m.timings = append(m.timings, data[i].(StatDataTiming))
+		case StatDataGauge:
+			m.gauges = append(m.gauges, data[i].(StatDataGauge))
 		}
 	}
 	return rargs.Error(0)
@@ -197,10 +201,14 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	c.Assert(ssi.IncrementCounter("TestFlushToBackend.bar", ""), IsNil)
 	c.Assert(ssi.IncrementCounterBy("TestFlushToBackend.bar", "", int64(10)), IsNil)
 
-	c.Assert(ssi.RecordTiming("TestFlushToBackend.temperature", "raleigh", 24.0), IsNil)
-	c.Assert(ssi.RecordTiming("TestFlushToBackend.temperature", "anchorage", 10.0), IsNil)
-	c.Assert(ssi.RecordTiming("TestFlushToBackend.temperature", "anchorage", 15.5), IsNil)
-	c.Assert(ssi.RecordTiming("TestFlushToBackend.world_population", "", 7264534001), IsNil)
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "raleigh", 24.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "anchorage", 10.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "anchorage", 15.5), IsNil)
+	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "buffalo", -1.2), IsNil)
+
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "A", 24.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 10.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 15.5), IsNil)
 
 	mockFlusher.On("Flush", mock.Anything, mock.Anything).Return(nil).Once()
 
@@ -209,6 +217,49 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	mockFlusher.AssertExpectations(c)
 
 	c.Check(mockFlusher.counters, HasLen, 3)
-	c.Check(mockFlusher.timings, HasLen, 3)
+	c.Check(mockFlusher.timings, HasLen, 2)
+	c.Check(mockFlusher.gauges, HasLen, 3)
+
+	for _, counter := range mockFlusher.counters {
+		nameAndSource := fmt.Sprintf("%s-%s", counter.Name, counter.Source)
+		switch nameAndSource {
+		case "TestFlushToBackend.foo-a":
+			c.Check(counter.Count, Equals, uint64(2))
+		case "TestFlushToBackend.foo-b":
+			c.Check(counter.Count, Equals, uint64(1))
+		case "TestFlushToBackend.bar-":
+			c.Check(counter.Count, Equals, uint64(12))
+		}
+	}
+
+	for _, timing := range mockFlusher.timings {
+		nameAndSource := fmt.Sprintf("%s-%s", timing.Name, timing.Source)
+		switch nameAndSource {
+		case "TestFlushToBackend.subroutine-A":
+			c.Check(timing.Count, Equals, 1)
+			c.Check(timing.Min, Equals, 24.0)
+			c.Check(timing.Max, Equals, 24.0)
+			c.Check(timing.Sum, Equals, 24.0)
+			c.Check(timing.SumSquares, Equals, 576.0)
+		case "TestFlushToBackend.subroutine-B":
+			c.Check(timing.Count, Equals, 2)
+			c.Check(timing.Min, Equals, 10.0)
+			c.Check(timing.Max, Equals, 15.5)
+			c.Check(timing.Sum, Equals, 25.5)
+			c.Check(timing.SumSquares, Equals, 340.25)
+		}
+	}
+
+	for _, gauge := range mockFlusher.gauges {
+		nameAndSource := fmt.Sprintf("%s-%s", gauge.Name, gauge.Source)
+		switch nameAndSource {
+		case "TestFlushToBackend.foo-a":
+			c.Check(gauge.Value, Equals, 24.0)
+		case "TestFlushToBackend.foo-b":
+			c.Check(gauge.Value, Equals, 15.5)
+		case "TestFlushToBackend.bar-":
+			c.Check(gauge.Value, Equals, -1.2)
+		}
+	}
 
 }
