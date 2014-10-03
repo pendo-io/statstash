@@ -27,6 +27,7 @@ import (
 
 const (
 	dsKindStatConfig         = "StatConfig"
+	scTypeTiming             = "timing"
 	scTypeGauge              = "gauge"
 	scTypeCounter            = "counter"
 	defaultAggregationPeriod = time.Duration(5 * time.Minute)
@@ -41,7 +42,7 @@ type StatConfig struct {
 }
 
 func (sc StatConfig) String() string {
-	return fmt.Sprintf("[StatConfig] name=%s, source=%s, type=%s, period=%s, lastread=%s",
+	return fmt.Sprintf("[StatConfig] name=%s, source=%s, type=%s, period=%d, lastread=%s",
 		sc.Name, sc.Source, sc.Type, sc.Period, sc.LastRead)
 }
 
@@ -55,8 +56,8 @@ type StatInterface interface {
 	IncrementCounter(name, source string) error
 	IncrementCounterBy(name, source string, delta int64) error
 	RecordGauge(name, source string, value interface{}) error
-	UpdateBackend(at time.Time, flusher StatsFlusher, cfg FlusherConfig) error
-	Purge() error
+	RecordTiming(name, source string, value interface{}) error
+	UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig) error
 }
 
 type StatInterfaceImplementation struct {
@@ -82,61 +83,11 @@ func (s StatInterfaceImplementation) IncrementCounterBy(name, source string, del
 }
 
 func (s StatInterfaceImplementation) RecordGauge(name, source string, value interface{}) error {
+	return s.recordGaugeOrTiming(scTypeGauge, name, source, value)
+}
 
-	now := time.Now()
-	bucketKey, err := s.getBucketKey(scTypeGauge, name, source, now)
-	if err != nil {
-		return err
-	}
-
-	var cached []GaugeMeasurement
-
-	for tries := 0; tries < 5; tries++ {
-		cachedItem, err := memcache.Gob.Get(s.c, bucketKey, &cached)
-		if err == memcache.ErrCacheMiss {
-			cached = make([]GaugeMeasurement, 0)
-		} else if err != nil {
-			// give up fast because something is wrong with memcache, probably
-			return err
-		}
-
-		cached = append(cached, GaugeMeasurement{Timestamp: now.Unix(), Value: value})
-
-		if cachedItem != nil {
-			cachedItem.Object = &cached
-			if err := memcache.Gob.CompareAndSwap(s.c, cachedItem); err == nil {
-				return nil
-			} else if err == memcache.ErrCASConflict {
-				time.Sleep(time.Microsecond * 50)
-				continue // do it again from the top
-			} else if err == memcache.ErrNotStored {
-				if err := memcache.Gob.Add(s.c, cachedItem); err == memcache.ErrNotStored {
-					return nil
-				}
-			} else {
-				return err // something went horribly wrong, bail
-			}
-		}
-
-		// If we made it this far, we'll need to just make a new item and store it
-		newItem := &memcache.Item{
-			Key:        bucketKey,
-			Object:     &cached,
-			Expiration: time.Duration(2 * defaultAggregationPeriod),
-		}
-		if err := memcache.Gob.Add(s.c, newItem); err == nil {
-			return nil
-		} else if err == memcache.ErrNotStored {
-			// someone has jumped in front of us
-			time.Sleep(time.Microsecond * 500)
-			continue
-		}
-		return err
-	}
-
-	s.c.Errorf("Failed to store/update gauge for bucket %s: %s", bucketKey, err)
-	return fmt.Errorf("Failed to store/update gauge for bucket %s; too many failures.")
-
+func (s StatInterfaceImplementation) RecordTiming(name, source string, value interface{}) error {
+	return s.recordGaugeOrTiming(scTypeTiming, name, source, value)
 }
 
 func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, flushConfig *FlusherConfig) error {
@@ -166,13 +117,17 @@ func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFl
 			var datum interface{}
 			cfgItem := cfgMap[k]
 			switch cfgItem.Type {
-			case scTypeGauge:
-				var gm []GaugeMeasurement
+			case scTypeTiming, scTypeGauge:
+				var gm []Measurement
 				if err := memcache.Gob.Unmarshal(item.Value, &gm); err != nil {
 					s.c.Errorf("Bad data found in memcache: key %s, error: %s", k, err)
 					continue
 				}
-				datum = StatDataGauge{StatConfig: cfgItem, Measurements: gm}
+				if cfgItem.Type == scTypeTiming {
+					datum = StatDataTiming{StatConfig: cfgItem, Measurements: gm}
+				} else {
+					datum = StatDataGauge{StatConfig: cfgItem, Value: gm[0].Value}
+				}
 			case scTypeCounter:
 				count, _ := strconv.ParseUint(string(item.Value), 10, 64)
 				datum = StatDataCounter{StatConfig: cfgItem, Count: count}
@@ -196,7 +151,7 @@ func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFl
 
 func (s StatInterfaceImplementation) Purge() error {
 
-	sc, err := s.getActiveConfigs(time.Time{})
+	sc, err := s.getAllConfigs()
 	if err != nil {
 		return err
 	}
@@ -208,7 +163,8 @@ func (s StatInterfaceImplementation) Purge() error {
 	dsKeys := make([]*datastore.Key, 0, len(sc))
 	memcacheKeys := make([]string, 0, len(sc))
 	for _, cfg := range sc {
-		lastPeriod := now.Add(time.Duration(-1) * time.Duration(cfg.Period))
+		lastPeriod := now.Add(time.Duration(-1) * time.Duration(cfg.Period) * time.Second)
+		s.c.Debugf("lastperiod %s", lastPeriod)
 		dsKeys = append(dsKeys, s.getStatConfigDatastoreKey(cfg.Type, cfg.Name, cfg.Source))
 		memcacheKeys = append(memcacheKeys, cfg.BucketKey(now))
 		memcacheKeys = append(memcacheKeys, cfg.BucketKey(lastPeriod))
@@ -224,18 +180,22 @@ func (s StatInterfaceImplementation) Purge() error {
 	return nil
 }
 
+func (s StatInterfaceImplementation) getAllConfigs() ([]StatConfig, error) {
+	q := datastore.NewQuery(dsKindStatConfig)
+	var cfgs []StatConfig
+	_, err := q.GetAll(s.c, &cfgs)
+	return cfgs, err
+}
+
 func (s StatInterfaceImplementation) getActiveConfigs(at time.Time) (map[string]StatConfig, error) {
 
 	statConfigs := make(map[string]StatConfig)
 
 	var finalError error
-	q := datastore.NewQuery(dsKindStatConfig)
+	cutoffTime := at.Add(time.Duration(time.Hour * 24 * -2))
+	s.c.Debugf("Looking for last read %s", cutoffTime)
 
-	if !at.Equal(time.Time{}) {
-		cutoffTime := at.Add(time.Duration(time.Hour * 24 * -2))
-		s.c.Debugf("Looking for last read %s", cutoffTime)
-		q = q.Filter("LastRead >", cutoffTime)
-	}
+	q := datastore.NewQuery(dsKindStatConfig).Filter("LastRead >", cutoffTime)
 	iter := q.Run(s.c)
 	for {
 		var sc StatConfig
@@ -343,14 +303,14 @@ func (s StatInterfaceImplementation) peekCounter(name, source string, at time.Ti
 	}
 }
 
-func (s StatInterfaceImplementation) peekGauge(name, source string, at time.Time) ([]GaugeMeasurement, error) {
+func (s StatInterfaceImplementation) peekGauge(name, source string, at time.Time) ([]Measurement, error) {
 
 	bucketKey, err := s.getBucketKey(scTypeGauge, name, source, time.Now())
 	if err != nil {
 		return nil, err
 	}
 
-	var gm []GaugeMeasurement
+	var gm []Measurement
 	if _, err = memcache.Gob.Get(s.c, bucketKey, &gm); err != nil {
 		return nil, err
 	} else {
@@ -358,20 +318,99 @@ func (s StatInterfaceImplementation) peekGauge(name, source string, at time.Time
 	}
 }
 
-type GaugeMeasurement struct {
+func (s StatInterfaceImplementation) peekTiming(name, source string, at time.Time) ([]Measurement, error) {
+
+	bucketKey, err := s.getBucketKey(scTypeTiming, name, source, time.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	var gm []Measurement
+	if _, err = memcache.Gob.Get(s.c, bucketKey, &gm); err != nil {
+		return nil, err
+	} else {
+		return gm, nil
+	}
+}
+
+func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source string, value interface{}) error {
+
+	now := time.Now()
+	bucketKey, err := s.getBucketKey(typ, name, source, now)
+	if err != nil {
+		return err
+	}
+
+	var cached []Measurement
+
+	for tries := 0; tries < 5; tries++ {
+		cachedItem, err := memcache.Gob.Get(s.c, bucketKey, &cached)
+		if err == memcache.ErrCacheMiss {
+			cached = make([]Measurement, 0)
+		} else if err != nil {
+			// give up fast because something is wrong with memcache, probably
+			return err
+		}
+
+		switch typ {
+		case scTypeTiming:
+			cached = append(cached, Measurement{Timestamp: now.Unix(), Value: value})
+		case scTypeGauge:
+			cached = []Measurement{Measurement{Timestamp: now.Unix(), Value: value}}
+
+		}
+
+		if cachedItem != nil {
+			cachedItem.Object = &cached
+			if err := memcache.Gob.CompareAndSwap(s.c, cachedItem); err == nil {
+				return nil
+			} else if err == memcache.ErrCASConflict {
+				time.Sleep(time.Microsecond * 50)
+				continue // do it again from the top
+			} else if err == memcache.ErrNotStored {
+				if err := memcache.Gob.Add(s.c, cachedItem); err == memcache.ErrNotStored {
+					return nil
+				}
+			} else {
+				return err // something went horribly wrong, bail
+			}
+		}
+
+		// If we made it this far, we'll need to just make a new item and store it
+		newItem := &memcache.Item{
+			Key:        bucketKey,
+			Object:     &cached,
+			Expiration: time.Duration(2 * defaultAggregationPeriod),
+		}
+		if err := memcache.Gob.Add(s.c, newItem); err == nil {
+			return nil
+		} else if err == memcache.ErrNotStored {
+			// someone has jumped in front of us
+			time.Sleep(time.Microsecond * 500)
+			continue
+		}
+		return err
+	}
+
+	s.c.Errorf("Failed to store/update gauge for bucket %s: %s", bucketKey, err)
+	return fmt.Errorf("Failed to store/update gauge for bucket %s; too many failures.")
+
+}
+
+type Measurement struct {
 	Timestamp int64
 	Value     interface{}
 }
 
-func (m GaugeMeasurement) String() string {
-	fmtString := "ts: %s, v: "
+func (m Measurement) String() string {
+	fmtString := "[TS: %d, Value: "
 	switch m.Value.(type) {
-	case float64:
-		fmtString += "%f"
-	case int64:
-		fmtString += "%d"
+	case float32, float64:
+		fmtString += "%f]"
+	case int, int64:
+		fmtString += "%d]"
 	default:
-		fmtString += "%s"
+		fmtString += "%s]"
 	}
 	return fmt.Sprintf(fmtString, m.Timestamp, m.Value)
 }
@@ -382,18 +421,28 @@ type StatDataCounter struct {
 }
 
 func (dc StatDataCounter) String() string {
-	return fmt.Sprintf("[Counter: name=%s, source=%s] %d",
+	return fmt.Sprintf("[Counter: name=%s, source=%s] Value: %d",
 		dc.Name, dc.Source, dc.Count)
+}
+
+type StatDataTiming struct {
+	StatConfig
+	Measurements []Measurement
+}
+
+func (dt StatDataTiming) String() string {
+	return fmt.Sprintf("[Timing: name=%s, source=%s] Measurements: %s",
+		dt.Name, dt.Source, dt.Measurements)
 }
 
 type StatDataGauge struct {
 	StatConfig
-	Measurements []GaugeMeasurement
+	Value interface{}
 }
 
 func (dg StatDataGauge) String() string {
-	return fmt.Sprintf("[Counter: name=%s, source=%s] %s",
-		dg.Name, dg.Source, dg.Measurements)
+	return fmt.Sprintf("[Gauge: name=%s, source=%s] Value: %s",
+		dg.Name, dg.Source, dg.Value)
 }
 
 // StatsFlusher is an interface used to flush stats to various locations
@@ -402,7 +451,9 @@ type StatsFlusher interface {
 }
 
 type FlusherConfig struct {
-	ApiKey string
+	Username string
+	Password string
+	ApiKey   string
 }
 
 // LogOnlyStatsFlusher is used to "flush" stats for testing and development.
@@ -411,21 +462,16 @@ type LogOnlyStatsFlusher struct {
 	c appengine.Context
 }
 
-func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg FlusherConfig) error {
+func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 	for i := range data {
 		var datum interface{}
 		switch data[i].(type) {
 		case StatDataCounter:
 			datum = data[i].(StatDataCounter)
-		case StatDataGauge:
-			datum = data[i].(StatDataGauge)
+		case StatDataTiming:
+			datum = data[i].(StatDataTiming)
 		}
 		f.c.Infof("%s", datum)
 	}
 	return nil
-}
-
-// LibratoStatsFlusher is used to flush stats to the Librato metrics service.
-type LibratoStatsFlusher struct {
-	c appengine.Context
 }

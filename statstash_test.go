@@ -26,19 +26,19 @@ import (
 type MockFlusher struct {
 	mock.Mock
 	counters []StatDataCounter
-	gauges   []StatDataGauge
+	timings  []StatDataTiming
 }
 
 func (m *MockFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 	rargs := m.Called(data, cfg)
 	m.counters = make([]StatDataCounter, 0)
-	m.gauges = make([]StatDataGauge, 0)
+	m.timings = make([]StatDataTiming, 0)
 	for i := range data {
 		switch data[i].(type) {
 		case StatDataCounter:
 			m.counters = append(m.counters, data[i].(StatDataCounter))
-		case StatDataGauge:
-			m.gauges = append(m.gauges, data[i].(StatDataGauge))
+		case StatDataTiming:
+			m.timings = append(m.timings, data[i].(StatDataTiming))
 		}
 	}
 	return rargs.Error(0)
@@ -76,38 +76,75 @@ func (s *StatStashTest) TestStatCounters(c *C) {
 
 }
 
-func (s *StatStashTest) TestStatGauges(c *C) {
+func (s *StatStashTest) TestStatGauge(c *C) {
 
 	ssi := StatInterfaceImplementation{s.Context}
 
-	c.Assert(ssi.RecordGauge("TestStatGauges.temperature", "raleigh", 24.0), IsNil)
-	c.Assert(ssi.RecordGauge("TestStatGauges.temperature", "anchorage", 10.0), IsNil)
-	c.Assert(ssi.RecordGauge("TestStatGauges.temperature", "anchorage", 15.5), IsNil)
-	c.Assert(ssi.RecordGauge("TestStatGauges.world_population", "", 7264534001), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "A", 24.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "B", 10.0), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "B", 15.5), IsNil)
+	c.Assert(ssi.RecordGauge("TestStatGauge.grand_total", "", 7264534001), IsNil)
 
 	now := time.Now()
 
-	tempRaleighMetrics, err := ssi.peekGauge("TestStatGauges.temperature", "raleigh", now)
+	subA, err := ssi.peekGauge("TestStatGauge.subroutine", "A", now)
 	c.Assert(err, IsNil)
-	c.Assert(tempRaleighMetrics, HasLen, 1)
-	c.Check(tempRaleighMetrics[0].Value, Equals, 24.0)
+	c.Assert(subA, HasLen, 1)
+	c.Check(subA[0].Value, Equals, 24.0)
 
-	tempAnchorageMetrics, err := ssi.peekGauge("TestStatGauges.temperature", "anchorage", now)
+	subB, err := ssi.peekGauge("TestStatGauge.subroutine", "B", now)
 	c.Assert(err, IsNil)
-	c.Assert(tempAnchorageMetrics, HasLen, 2)
-	c.Check(tempAnchorageMetrics[0].Value, Equals, 10.0)
-	c.Check(tempAnchorageMetrics[1].Value, Equals, 15.5)
+	c.Assert(subB, HasLen, 1)
+	c.Check(subB[0].Value, Equals, 15.5)
 
-	worldPop, err := ssi.peekGauge("TestStatGauges.world_population", "", now)
+	grand, err := ssi.peekGauge("TestStatGauge.grand_total", "", now)
 	c.Assert(err, IsNil)
-	c.Assert(worldPop, HasLen, 1)
-	c.Check(worldPop[0].Value, Equals, 7264534001)
+	c.Assert(grand, HasLen, 1)
+	c.Check(grand[0].Value, Equals, 7264534001)
 
-	for i := 0; i < 100; i++ {
-		c.Assert(ssi.RecordGauge("TestStatGauges.upandtotheright", "", i), IsNil)
+	for i := 0; i < 10; i++ {
+		c.Assert(ssi.RecordGauge("TestStatGauge.upandtotheright", "", i), IsNil)
 	}
 
-	upAndToTheRight, err := ssi.peekGauge("TestStatGauges.upandtotheright", "", now)
+	upAndToTheRight, err := ssi.peekGauge("TestStatGauge.upandtotheright", "", now)
+	c.Assert(err, IsNil)
+	c.Assert(upAndToTheRight, HasLen, 1)
+	c.Check(upAndToTheRight[0].Value, Equals, 9)
+
+}
+
+func (s *StatStashTest) TestStatTimings(c *C) {
+
+	ssi := StatInterfaceImplementation{s.Context}
+
+	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "A", 24.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 10.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 15.5), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.grand_total", "", 7264534001), IsNil)
+
+	now := time.Now()
+
+	subA, err := ssi.peekTiming("TestStatTimings.subroutine", "A", now)
+	c.Assert(err, IsNil)
+	c.Assert(subA, HasLen, 1)
+	c.Check(subA[0].Value, Equals, 24.0)
+
+	subB, err := ssi.peekTiming("TestStatTimings.subroutine", "B", now)
+	c.Assert(err, IsNil)
+	c.Assert(subB, HasLen, 2)
+	c.Check(subB[0].Value, Equals, 10.0)
+	c.Check(subB[1].Value, Equals, 15.5)
+
+	grand, err := ssi.peekTiming("TestStatTimings.grand_total", "", now)
+	c.Assert(err, IsNil)
+	c.Assert(grand, HasLen, 1)
+	c.Check(grand[0].Value, Equals, 7264534001)
+
+	for i := 0; i < 10; i++ {
+		c.Assert(ssi.RecordTiming("TestStatTimings.upandtotheright", "", i), IsNil)
+	}
+
+	upAndToTheRight, err := ssi.peekTiming("TestStatTimings.upandtotheright", "", now)
 	c.Assert(err, IsNil)
 	for i, metric := range upAndToTheRight {
 		c.Check(metric.Value, Equals, i)
@@ -160,10 +197,10 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	c.Assert(ssi.IncrementCounter("TestFlushToBackend.bar", ""), IsNil)
 	c.Assert(ssi.IncrementCounterBy("TestFlushToBackend.bar", "", int64(10)), IsNil)
 
-	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "raleigh", 24.0), IsNil)
-	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "anchorage", 10.0), IsNil)
-	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "anchorage", 15.5), IsNil)
-	c.Assert(ssi.RecordGauge("TestFlushToBackend.world_population", "", 7264534001), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.temperature", "raleigh", 24.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.temperature", "anchorage", 10.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.temperature", "anchorage", 15.5), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.world_population", "", 7264534001), IsNil)
 
 	mockFlusher.On("Flush", mock.Anything, mock.Anything).Return(nil).Once()
 
@@ -172,6 +209,6 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	mockFlusher.AssertExpectations(c)
 
 	c.Check(mockFlusher.counters, HasLen, 3)
-	c.Check(mockFlusher.gauges, HasLen, 3)
+	c.Check(mockFlusher.timings, HasLen, 3)
 
 }
