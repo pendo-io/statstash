@@ -62,6 +62,40 @@ type StatInterface interface {
 	UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error
 }
 
+func NewLoggingStatImplementation(c appengine.Context) StatInterface {
+	return LoggingStatImplementation{c}
+}
+
+type LoggingStatImplementation struct {
+	c appengine.Context
+}
+
+// LoggingStatImplementation is a no-op interface for testing; logs to debug level only
+func (m LoggingStatImplementation) IncrementCounter(name, source string) error {
+	m.c.Debugf("IncrementCounter(%s, %s)", name, source)
+	return nil
+}
+
+func (m LoggingStatImplementation) IncrementCounterBy(name, source string, delta int64) error {
+	m.c.Debugf("IncrementCounterBy(%s, %s, %d)", name, source, delta)
+	return nil
+}
+
+func (m LoggingStatImplementation) RecordGauge(name, source string, value float64) error {
+	m.c.Debugf("RecordGauge(%s, %s, %f)", name, source, value)
+	return nil
+}
+
+func (m LoggingStatImplementation) RecordTiming(name, source string, value float64) error {
+	m.c.Debugf("RecordTiming(%s, %s, %f)", name, source, value)
+	return nil
+}
+
+func (m LoggingStatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error {
+	m.c.Debugf("UpdateBackend(%s, %#v, %#v, %t)", at, flusher, cfg, force)
+	return nil
+}
+
 func NewStatInterface(c appengine.Context) StatInterface {
 	return StatImplementation{c}
 }
