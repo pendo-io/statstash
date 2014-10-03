@@ -57,24 +57,24 @@ func (sc StatConfig) BucketKey(t time.Time, offset int) string {
 type StatInterface interface {
 	IncrementCounter(name, source string) error
 	IncrementCounterBy(name, source string, delta int64) error
-	RecordGauge(name, source string, value interface{}) error
-	RecordTiming(name, source string, value interface{}) error
-	UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig) error
+	RecordGauge(name, source string, value float64) error
+	RecordTiming(name, source string, value float64) error
+	UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error
 }
 
-func NewStatInterfaceImplementation(c appengine.Context) StatInterface {
-	return StatInterfaceImplementation{c}
+func NewStatInterface(c appengine.Context) StatInterface {
+	return StatImplementation{c}
 }
 
-type StatInterfaceImplementation struct {
+type StatImplementation struct {
 	c appengine.Context
 }
 
-func (s StatInterfaceImplementation) IncrementCounter(name, source string) error {
+func (s StatImplementation) IncrementCounter(name, source string) error {
 	return s.IncrementCounterBy(name, source, 1)
 }
 
-func (s StatInterfaceImplementation) IncrementCounterBy(name, source string, delta int64) error {
+func (s StatImplementation) IncrementCounterBy(name, source string, delta int64) error {
 
 	bucketKey, err := s.getBucketKey(scTypeCounter, name, source, time.Now())
 	if err != nil {
@@ -88,15 +88,15 @@ func (s StatInterfaceImplementation) IncrementCounterBy(name, source string, del
 	return err
 }
 
-func (s StatInterfaceImplementation) RecordGauge(name, source string, value float64) error {
+func (s StatImplementation) RecordGauge(name, source string, value float64) error {
 	return s.recordGaugeOrTiming(scTypeGauge, name, source, value)
 }
 
-func (s StatInterfaceImplementation) RecordTiming(name, source string, value float64) error {
+func (s StatImplementation) RecordTiming(name, source string, value float64) error {
 	return s.recordGaugeOrTiming(scTypeTiming, name, source, value)
 }
 
-func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, flushConfig *FlusherConfig, force bool) error {
+func (s StatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, flushConfig *FlusherConfig, force bool) error {
 
 	if !force {
 		lastFlushedTime := s.getLastFlushTime()
@@ -182,7 +182,7 @@ func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFl
 
 }
 
-func (s StatInterfaceImplementation) Purge() error {
+func (s StatImplementation) Purge() error {
 
 	sc, err := s.getAllConfigs()
 	if err != nil {
@@ -211,14 +211,14 @@ func (s StatInterfaceImplementation) Purge() error {
 	return nil
 }
 
-func (s StatInterfaceImplementation) getAllConfigs() ([]StatConfig, error) {
+func (s StatImplementation) getAllConfigs() ([]StatConfig, error) {
 	q := datastore.NewQuery(dsKindStatConfig)
 	var cfgs []StatConfig
 	_, err := q.GetAll(s.c, &cfgs)
 	return cfgs, err
 }
 
-func (s StatInterfaceImplementation) getActiveConfigs(at time.Time, offset int) (map[string]StatConfig, error) {
+func (s StatImplementation) getActiveConfigs(at time.Time, offset int) (map[string]StatConfig, error) {
 
 	statConfigs := make(map[string]StatConfig)
 
@@ -247,7 +247,7 @@ func (s StatInterfaceImplementation) getActiveConfigs(at time.Time, offset int) 
 	return statConfigs, finalError
 }
 
-func (s StatInterfaceImplementation) getBucketKey(typ, name, source string, at time.Time) (string, error) {
+func (s StatImplementation) getBucketKey(typ, name, source string, at time.Time) (string, error) {
 	statConfig, err := s.getStatConfig(typ, name, source)
 	if err != nil {
 		return "", err
@@ -256,19 +256,19 @@ func (s StatInterfaceImplementation) getBucketKey(typ, name, source string, at t
 	return statConfig.BucketKey(at, 0), nil
 }
 
-func (s StatInterfaceImplementation) getStatConfigKeyName(typ, name, source string) string {
+func (s StatImplementation) getStatConfigKeyName(typ, name, source string) string {
 	return fmt.Sprintf("%s-%s-%s", typ, name, source)
 }
 
-func (s StatInterfaceImplementation) getStatConfigMemcacheKey(typ, name, source string) string {
+func (s StatImplementation) getStatConfigMemcacheKey(typ, name, source string) string {
 	return fmt.Sprintf("ss-conf:%s", s.getStatConfigKeyName(typ, name, source))
 }
 
-func (s StatInterfaceImplementation) getStatConfigDatastoreKey(typ, name, source string) *datastore.Key {
+func (s StatImplementation) getStatConfigDatastoreKey(typ, name, source string) *datastore.Key {
 	return datastore.NewKey(s.c, dsKindStatConfig, s.getStatConfigKeyName(typ, name, source), 0, nil)
 }
 
-func (s StatInterfaceImplementation) getStatConfig(typ, name, source string) (StatConfig, error) {
+func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig, error) {
 
 	var sc StatConfig
 
@@ -319,7 +319,7 @@ func (s StatInterfaceImplementation) getStatConfig(typ, name, source string) (St
 
 }
 
-func (s StatInterfaceImplementation) peekCounter(name, source string, at time.Time) (uint64, error) {
+func (s StatImplementation) peekCounter(name, source string, at time.Time) (uint64, error) {
 
 	bucketKey, err := s.getBucketKey(scTypeCounter, name, source, time.Now())
 	if err != nil {
@@ -333,7 +333,7 @@ func (s StatInterfaceImplementation) peekCounter(name, source string, at time.Ti
 	}
 }
 
-func (s StatInterfaceImplementation) peekGauge(name, source string, at time.Time) ([]Measurement, error) {
+func (s StatImplementation) peekGauge(name, source string, at time.Time) ([]Measurement, error) {
 
 	bucketKey, err := s.getBucketKey(scTypeGauge, name, source, time.Now())
 	if err != nil {
@@ -348,7 +348,7 @@ func (s StatInterfaceImplementation) peekGauge(name, source string, at time.Time
 	}
 }
 
-func (s StatInterfaceImplementation) peekTiming(name, source string, at time.Time) ([]Measurement, error) {
+func (s StatImplementation) peekTiming(name, source string, at time.Time) ([]Measurement, error) {
 
 	bucketKey, err := s.getBucketKey(scTypeTiming, name, source, time.Now())
 	if err != nil {
@@ -363,7 +363,7 @@ func (s StatInterfaceImplementation) peekTiming(name, source string, at time.Tim
 	}
 }
 
-func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source string, value float64) error {
+func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value float64) error {
 
 	now := time.Now()
 	bucketKey, err := s.getBucketKey(typ, name, source, now)
@@ -427,7 +427,7 @@ func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source strin
 
 }
 
-func (s StatInterfaceImplementation) getLastFlushTime() time.Time {
+func (s StatImplementation) getLastFlushTime() time.Time {
 	var lastUpdated time.Time
 	if _, err := memcache.Gob.Get(s.c, "ss-lft", &lastUpdated); err != nil {
 		return time.Time{}
@@ -435,7 +435,7 @@ func (s StatInterfaceImplementation) getLastFlushTime() time.Time {
 	return lastUpdated
 }
 
-func (s StatInterfaceImplementation) updateLastFlushTime(flushTime time.Time) error {
+func (s StatImplementation) updateLastFlushTime(flushTime time.Time) error {
 	return memcache.Gob.Set(s.c, &memcache.Item{
 		Key:    "ss-lft",
 		Object: &flushTime,

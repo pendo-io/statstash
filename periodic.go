@@ -21,7 +21,7 @@ import (
 
 func PeriodicStatsFlusher(flusher StatsFlusher, cfg *FlusherConfig, w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	sii := StatInterfaceImplementation{c}
+	sii := StatImplementation{c}
 
 	startOfLastPeriod := getFlushPeriodStart(time.Now(), -1)
 	if err := sii.UpdateBackend(startOfLastPeriod, flusher, cfg, false); err != nil {
