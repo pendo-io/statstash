@@ -62,6 +62,10 @@ type StatInterface interface {
 	UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig) error
 }
 
+func NewStatInterfaceImplementation(c appengine.Context) StatInterface {
+	return StatInterfaceImplementation{c}
+}
+
 type StatInterfaceImplementation struct {
 	c appengine.Context
 }
