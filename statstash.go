@@ -82,11 +82,11 @@ func (s StatInterfaceImplementation) IncrementCounterBy(name, source string, del
 	return err
 }
 
-func (s StatInterfaceImplementation) RecordGauge(name, source string, value interface{}) error {
+func (s StatInterfaceImplementation) RecordGauge(name, source string, value float64) error {
 	return s.recordGaugeOrTiming(scTypeGauge, name, source, value)
 }
 
-func (s StatInterfaceImplementation) RecordTiming(name, source string, value interface{}) error {
+func (s StatInterfaceImplementation) RecordTiming(name, source string, value float64) error {
 	return s.recordGaugeOrTiming(scTypeTiming, name, source, value)
 }
 
@@ -333,7 +333,7 @@ func (s StatInterfaceImplementation) peekTiming(name, source string, at time.Tim
 	}
 }
 
-func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source string, value interface{}) error {
+func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source string, value float64) error {
 
 	now := time.Now()
 	bucketKey, err := s.getBucketKey(typ, name, source, now)
@@ -399,19 +399,11 @@ func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source strin
 
 type Measurement struct {
 	Timestamp int64
-	Value     interface{}
+	Value     float64
 }
 
 func (m Measurement) String() string {
-	fmtString := "[TS: %d, Value: "
-	switch m.Value.(type) {
-	case float32, float64:
-		fmtString += "%f]"
-	case int, int64:
-		fmtString += "%d]"
-	default:
-		fmtString += "%s]"
-	}
+	fmtString := "[TS: %d, Value: %f]"
 	return fmt.Sprintf(fmtString, m.Timestamp, m.Value)
 }
 

@@ -100,16 +100,16 @@ func (s *StatStashTest) TestStatGauge(c *C) {
 	grand, err := ssi.peekGauge("TestStatGauge.grand_total", "", now)
 	c.Assert(err, IsNil)
 	c.Assert(grand, HasLen, 1)
-	c.Check(grand[0].Value, Equals, 7264534001)
+	c.Check(grand[0].Value, Equals, float64(7264534001))
 
 	for i := 0; i < 10; i++ {
-		c.Assert(ssi.RecordGauge("TestStatGauge.upandtotheright", "", i), IsNil)
+		c.Assert(ssi.RecordGauge("TestStatGauge.upandtotheright", "", float64(i)), IsNil)
 	}
 
 	upAndToTheRight, err := ssi.peekGauge("TestStatGauge.upandtotheright", "", now)
 	c.Assert(err, IsNil)
 	c.Assert(upAndToTheRight, HasLen, 1)
-	c.Check(upAndToTheRight[0].Value, Equals, 9)
+	c.Check(upAndToTheRight[0].Value, Equals, float64(9))
 
 }
 
@@ -120,7 +120,7 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "A", 24.0), IsNil)
 	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 10.0), IsNil)
 	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 15.5), IsNil)
-	c.Assert(ssi.RecordTiming("TestStatTimings.grand_total", "", 7264534001), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.grand_total", "", 7264534001.0), IsNil)
 
 	now := time.Now()
 
@@ -138,16 +138,16 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 	grand, err := ssi.peekTiming("TestStatTimings.grand_total", "", now)
 	c.Assert(err, IsNil)
 	c.Assert(grand, HasLen, 1)
-	c.Check(grand[0].Value, Equals, 7264534001)
+	c.Check(grand[0].Value, Equals, 7264534001.0)
 
 	for i := 0; i < 10; i++ {
-		c.Assert(ssi.RecordTiming("TestStatTimings.upandtotheright", "", i), IsNil)
+		c.Assert(ssi.RecordTiming("TestStatTimings.upandtotheright", "", float64(i)), IsNil)
 	}
 
 	upAndToTheRight, err := ssi.peekTiming("TestStatTimings.upandtotheright", "", now)
 	c.Assert(err, IsNil)
 	for i, metric := range upAndToTheRight {
-		c.Check(metric.Value, Equals, i)
+		c.Check(metric.Value, Equals, float64(i))
 	}
 
 }
