@@ -170,9 +170,9 @@ func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 	c.Assert(ssi.IncrementCounterBy("TestGetActiveConfigs.bar", "", int64(10)), IsNil)
 
 	now := time.Now()
-	bucketTs := now.Truncate(time.Duration(defaultAggregationPeriod)).Unix()
+	bucketTs := getFlushPeriodStart(now, 0)
 
-	cfgMap, err := ssi.getActiveConfigs(now)
+	cfgMap, err := ssi.getActiveConfigs(now, 0)
 	c.Assert(err, IsNil)
 	c.Assert(cfgMap, HasLen, 3)
 

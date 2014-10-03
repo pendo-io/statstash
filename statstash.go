@@ -38,18 +38,16 @@ type StatConfig struct {
 	Name     string    `datastore:",noindex" json:"name"`
 	Source   string    `datastore:",noindex" json:"source"`
 	Type     string    `datastore:",noindex" json:"type"`
-	Period   int64     `datastore:",noindex" json:"period"`
 	LastRead time.Time `json:"lastread"`
 }
 
 func (sc StatConfig) String() string {
-	return fmt.Sprintf("[StatConfig] name=%s, source=%s, type=%s, period=%d, lastread=%s",
-		sc.Name, sc.Source, sc.Type, sc.Period, sc.LastRead)
+	return fmt.Sprintf("[StatConfig] name=%s, source=%s, type=%s, lastread=%s",
+		sc.Name, sc.Source, sc.Type, sc.LastRead)
 }
 
-func (sc StatConfig) BucketKey(t time.Time) string {
-	return fmt.Sprintf("ss-metric:%s-%s-%s-%d",
-		sc.Type, sc.Name, sc.Source, t.Truncate(time.Duration(sc.Period)*time.Second).Unix())
+func (sc StatConfig) BucketKey(t time.Time, offset int) string {
+	return fmt.Sprintf("ss-metric:%s-%s-%s-%d", sc.Type, sc.Name, sc.Source, getFlushPeriodStart(t, offset))
 }
 
 // StatInterface defines the interface for the application to
@@ -93,7 +91,7 @@ func (s StatInterfaceImplementation) RecordTiming(name, source string, value flo
 
 func (s StatInterfaceImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, flushConfig *FlusherConfig) error {
 
-	cfgMap, err := s.getActiveConfigs(at)
+	cfgMap, err := s.getActiveConfigs(at, 0)
 	if err != nil {
 		s.c.Errorf("Failed to get active buckets when updating backend: %s", err)
 		return err
@@ -181,11 +179,9 @@ func (s StatInterfaceImplementation) Purge() error {
 	dsKeys := make([]*datastore.Key, 0, len(sc))
 	memcacheKeys := make([]string, 0, len(sc))
 	for _, cfg := range sc {
-		lastPeriod := now.Add(time.Duration(-1) * time.Duration(cfg.Period) * time.Second)
-		s.c.Debugf("lastperiod %s", lastPeriod)
 		dsKeys = append(dsKeys, s.getStatConfigDatastoreKey(cfg.Type, cfg.Name, cfg.Source))
-		memcacheKeys = append(memcacheKeys, cfg.BucketKey(now))
-		memcacheKeys = append(memcacheKeys, cfg.BucketKey(lastPeriod))
+		memcacheKeys = append(memcacheKeys, cfg.BucketKey(now, 0))
+		memcacheKeys = append(memcacheKeys, cfg.BucketKey(now, -1))
 
 	}
 
@@ -205,7 +201,7 @@ func (s StatInterfaceImplementation) getAllConfigs() ([]StatConfig, error) {
 	return cfgs, err
 }
 
-func (s StatInterfaceImplementation) getActiveConfigs(at time.Time) (map[string]StatConfig, error) {
+func (s StatInterfaceImplementation) getActiveConfigs(at time.Time, offset int) (map[string]StatConfig, error) {
 
 	statConfigs := make(map[string]StatConfig)
 
@@ -225,7 +221,7 @@ func (s StatInterfaceImplementation) getActiveConfigs(at time.Time) (map[string]
 			finalError = err
 			break
 		}
-		bucketKey := sc.BucketKey(at)
+		bucketKey := sc.BucketKey(at, offset)
 		s.c.Debugf("Found %s, bucketKey %s", sc, bucketKey)
 
 		statConfigs[bucketKey] = sc
@@ -240,7 +236,7 @@ func (s StatInterfaceImplementation) getBucketKey(typ, name, source string, at t
 		return "", err
 	}
 
-	return statConfig.BucketKey(at), nil
+	return statConfig.BucketKey(at, 0), nil
 }
 
 func (s StatInterfaceImplementation) getStatConfigKeyName(typ, name, source string) string {
@@ -277,7 +273,6 @@ func (s StatInterfaceImplementation) getStatConfig(typ, name, source string) (St
 		sc.Source = source
 		sc.Type = typ
 		sc.LastRead = now
-		sc.Period = int64(defaultAggregationPeriod / time.Second)
 		updateNeeded = true
 	} else {
 		if now.Sub(sc.LastRead) >= time.Duration(2*24*time.Hour) {
@@ -413,6 +408,14 @@ func (s StatInterfaceImplementation) recordGaugeOrTiming(typ, name, source strin
 	s.c.Errorf("Failed to store/update gauge for bucket %s: %s", bucketKey, err)
 	return fmt.Errorf("Failed to store/update gauge for bucket %s; too many failures.")
 
+}
+
+func getFlushPeriodStart(at time.Time, offset int) int64 {
+	startOfPeriod := at.Truncate(defaultAggregationPeriod)
+	if offset != 0 {
+		startOfPeriod = startOfPeriod.Add(time.Duration(offset) * defaultAggregationPeriod)
+	}
+	return startOfPeriod.Unix()
 }
 
 type Measurement struct {
