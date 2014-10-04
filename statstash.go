@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -171,25 +172,37 @@ func (s StatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, fl
 					s.c.Errorf("Bad data found in memcache: key %s, error: %s", k, err)
 					continue
 				}
+				if len(gm) == 0 {
+					panic("Something went terribly wrong; empty list cached!")
+				}
 				if cfgItem.Type == scTypeTiming {
-					var min, max, sum, sumSquares float64
+					var median, sum, sumSquares float64
+					// sort our list
+					sort.Float64s(gm)
 					count := len(gm)
+					min := gm[0]
+					max := gm[count-1]
+					if count == 1 {
+						median = gm[0]
+					} else if count%2 == 0 {
+						median = (gm[(count/2)-1] + gm[count/2]) / 2.0
+					} else {
+						median = gm[(count / 2)]
+					}
+					ninthdecileCount := int(math.Ceil(0.9 * float64(count)))
+					ninthdecileValue := gm[ninthdecileCount-1]
+					ninthdecileSum := 0.0
 					for i, m := range gm {
-						if i == 0 {
-							min = m
-							max = m
-						} else {
-							if m < min {
-								min = m
-							}
-							if m > max {
-								max = m
-							}
+						if i < ninthdecileCount {
+							ninthdecileSum += m
 						}
 						sum += m
 						sumSquares += math.Pow(m, 2.0)
 					}
-					datum = StatDataTiming{StatConfig: cfgItem, Count: count, Min: min, Max: max, Sum: sum, SumSquares: sumSquares}
+					datum = StatDataTiming{StatConfig: cfgItem, Count: count,
+						Min: min, Max: max, Sum: sum, SumSquares: sumSquares,
+						Median: median, NinthDecileCount: ninthdecileCount,
+						NinthDecileSum: ninthdecileSum, NinthDecileValue: ninthdecileValue}
 				} else {
 					datum = StatDataGauge{StatConfig: cfgItem, Value: gm[0]}
 				}
@@ -495,16 +508,20 @@ func (dc StatDataCounter) String() string {
 
 type StatDataTiming struct {
 	StatConfig
-	Count      int
-	Min        float64
-	Max        float64
-	Sum        float64
-	SumSquares float64
+	Count            int
+	Min              float64
+	Max              float64
+	Sum              float64
+	SumSquares       float64
+	Median           float64
+	NinthDecileValue float64
+	NinthDecileSum   float64
+	NinthDecileCount int
 }
 
 func (dt StatDataTiming) String() string {
-	return fmt.Sprintf("[Timing: name=%s, source=%s] Count: %d, Min: %f, Max: %f, Sum: %f, SumSquares: %f",
-		dt.Name, dt.Source, dt.Count, dt.Min, dt.Max, dt.Sum, dt.SumSquares)
+	return fmt.Sprintf("[Timing: name=%s, source=%s] Count: %d, Min: %f, Max: %f, Sum: %f, SumSquares: %f, Median: %f, 90th percentile (count: %d, value: %f, sum: %f):",
+		dt.Name, dt.Source, dt.Count, dt.Min, dt.Max, dt.Sum, dt.SumSquares, dt.Median, dt.NinthDecileCount, dt.NinthDecileValue, dt.NinthDecileSum)
 }
 
 type StatDataGauge struct {

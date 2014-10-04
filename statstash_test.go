@@ -210,6 +210,10 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 10.0), IsNil)
 	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 15.5), IsNil)
 
+	for i := 0; i < 10; i++ {
+		c.Assert(ssi.RecordTiming("TestFlushToBackend.upandtotheright", "", float64(i)), IsNil)
+	}
+
 	mockFlusher.On("Flush", mock.Anything, mock.Anything).Return(nil).Once()
 
 	now := time.Now()
@@ -217,7 +221,7 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	mockFlusher.AssertExpectations(c)
 
 	c.Check(mockFlusher.counters, HasLen, 3)
-	c.Check(mockFlusher.timings, HasLen, 2)
+	c.Check(mockFlusher.timings, HasLen, 3)
 	c.Check(mockFlusher.gauges, HasLen, 3)
 
 	for _, counter := range mockFlusher.counters {
@@ -241,12 +245,30 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 			c.Check(timing.Max, Equals, 24.0)
 			c.Check(timing.Sum, Equals, 24.0)
 			c.Check(timing.SumSquares, Equals, 576.0)
+			c.Check(timing.Median, Equals, 24.0)
+			c.Check(timing.NinthDecileCount, Equals, 1)
+			c.Check(timing.NinthDecileValue, Equals, 24.0)
+			c.Check(timing.NinthDecileSum, Equals, 24.0)
 		case "TestFlushToBackend.subroutine-B":
 			c.Check(timing.Count, Equals, 2)
 			c.Check(timing.Min, Equals, 10.0)
 			c.Check(timing.Max, Equals, 15.5)
 			c.Check(timing.Sum, Equals, 25.5)
 			c.Check(timing.SumSquares, Equals, 340.25)
+			c.Check(timing.Median, Equals, 12.75)
+			c.Check(timing.NinthDecileCount, Equals, 2)
+			c.Check(timing.NinthDecileValue, Equals, 15.5)
+			c.Check(timing.NinthDecileSum, Equals, 25.5)
+		case "TestFlushToBackend.upandtotheright-":
+			c.Check(timing.Count, Equals, 10)
+			c.Check(timing.Min, Equals, 0.0)
+			c.Check(timing.Max, Equals, 9.0)
+			c.Check(timing.Sum, Equals, 45.0)
+			c.Check(timing.SumSquares, Equals, 285.0)
+			c.Check(timing.Median, Equals, 4.5)
+			c.Check(timing.NinthDecileCount, Equals, 9)
+			c.Check(timing.NinthDecileValue, Equals, 8.0)
+			c.Check(timing.NinthDecileSum, Equals, 36.0)
 		}
 	}
 
