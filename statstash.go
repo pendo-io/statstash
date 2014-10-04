@@ -526,7 +526,7 @@ func (dt StatDataTiming) String() string {
 
 type StatDataGauge struct {
 	StatConfig
-	Value interface{}
+	Value float64
 }
 
 func (dg StatDataGauge) String() string {
