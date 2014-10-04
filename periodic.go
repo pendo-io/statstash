@@ -19,12 +19,19 @@ import (
 	"time"
 )
 
-func PeriodicStatsFlusher(flusher StatsFlusher, cfg *FlusherConfig, w http.ResponseWriter, r *http.Request) {
+func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http.Request) {
 	c := appengine.NewContext(r)
-	sii := StatImplementation{c}
+	stats := StatImplementation{c}
+	doFlush(c, stats, flusher, cfg)
+}
 
+func PeriodicStatsFlushHandlerCustom(c appengine.Context, stats StatInterface, flusher StatsFlusher, cfg *FlusherConfig) {
+	doFlush(c, stats, flusher, cfg)
+}
+
+func doFlush(c appengine.Context, stats StatInterface, flusher StatsFlusher, cfg *FlusherConfig) {
 	startOfLastPeriod := getFlushPeriodStart(time.Now(), -1)
-	if err := sii.UpdateBackend(startOfLastPeriod, flusher, cfg, false); err != nil {
+	if err := stats.UpdateBackend(startOfLastPeriod, flusher, cfg, false); err != nil {
 		c.Errorf("Failed updating stats backend: %s", err)
 	} else {
 		c.Infof("Updated stats backend")
