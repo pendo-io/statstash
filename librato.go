@@ -80,7 +80,7 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 			}
 			gaugeCount++
 			// Send a 90th percentile (9th decile) metric, too
-			postdata.Add(getPostKey("gauges", "name", gaugeCount), sdt.Name+"-90")
+			postdata.Add(getPostKey("gauges", "name", gaugeCount), sdt.Name+".90")
 			postdata.Add(getPostKey("gauges", "count", gaugeCount), fmt.Sprintf("%d", sdt.NinthDecileCount))
 			postdata.Add(getPostKey("gauges", "max", gaugeCount), fmt.Sprintf("%f", sdt.NinthDecileValue))
 			postdata.Add(getPostKey("gauges", "sum", gaugeCount), fmt.Sprintf("%f", sdt.NinthDecileSum))
