@@ -135,7 +135,7 @@ func (s StatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, fl
 
 	if !force {
 		lastFlushedTime := s.getLastFlushTime()
-		if at.Sub(lastFlushedTime) <= defaultAggregationPeriod {
+		if at.Sub(lastFlushedTime) < defaultAggregationPeriod {
 			s.c.Warningf("Refusing to update backend since it's too soon (last flushed at %s, aggregation period %s)", lastFlushedTime, defaultAggregationPeriod)
 			return ErrStatFlushTooSoon
 		}
