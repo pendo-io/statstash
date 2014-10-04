@@ -59,10 +59,31 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 				postdata.Add(getPostKey("counters", "source", counterCount), sdc.Source)
 			}
 			counterCount++
+		case StatDataGauge:
+			sdg := data[i].(StatDataGauge)
+			postdata.Add(getPostKey("gauges", "name", counterCount), sdg.Name)
+			postdata.Add(getPostKey("gauges", "value", counterCount), fmt.Sprintf("%f", sdg.Value))
+			if sdg.Source != "" {
+				postdata.Add(getPostKey("gauges", "source", counterCount), sdg.Source)
+			}
+			gaugeCount++
 		case StatDataTiming:
 			sdt := data[i].(StatDataTiming)
 			postdata.Add(getPostKey("gauges", "name", gaugeCount), sdt.Name)
-			// postdata.Add(getPostKey("gauges", "value", gaugeCount), fmt.Sprintf("%f", sdt.Va))
+			postdata.Add(getPostKey("gauges", "count", gaugeCount), fmt.Sprintf("%d", sdt.Count))
+			postdata.Add(getPostKey("gauges", "min", gaugeCount), fmt.Sprintf("%f", sdt.Min))
+			postdata.Add(getPostKey("gauges", "max", gaugeCount), fmt.Sprintf("%f", sdt.Max))
+			postdata.Add(getPostKey("gauges", "sum", gaugeCount), fmt.Sprintf("%f", sdt.Sum))
+			postdata.Add(getPostKey("gauges", "sum_squares", gaugeCount), fmt.Sprintf("%f", sdt.SumSquares))
+			if sdt.Source != "" {
+				postdata.Add(getPostKey("gauges", "source", counterCount), sdt.Source)
+			}
+			gaugeCount++
+			// Send a 90th percentile (9th decile) metric, too
+			postdata.Add(getPostKey("gauges", "name", gaugeCount), sdt.Name+"-90")
+			postdata.Add(getPostKey("gauges", "count", gaugeCount), fmt.Sprintf("%d", sdt.NinthDecileCount))
+			postdata.Add(getPostKey("gauges", "max", gaugeCount), fmt.Sprintf("%f", sdt.NinthDecileValue))
+			postdata.Add(getPostKey("gauges", "sum", gaugeCount), fmt.Sprintf("%f", sdt.NinthDecileSum))
 			if sdt.Source != "" {
 				postdata.Add(getPostKey("gauges", "source", counterCount), sdt.Source)
 			}
