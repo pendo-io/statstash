@@ -545,6 +545,10 @@ type LogOnlyStatsFlusher struct {
 	c appengine.Context
 }
 
+func NewLogOnlyStatsFlusher(c appengine.Context) StatsFlusher {
+	return LogOnlyStatsFlusher{c}
+}
+
 func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 	for i := range data {
 		var datum interface{}

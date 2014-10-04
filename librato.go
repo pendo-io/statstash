@@ -34,6 +34,10 @@ type LibratoStatsFlusher struct {
 	c appengine.Context
 }
 
+func NewLibratoStatsFlusher(c appengine.Context) StatsFlusher {
+	return LibratoStatsFlusher{c}
+}
+
 func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 
 	postdata := make(url.Values)
