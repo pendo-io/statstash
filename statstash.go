@@ -51,7 +51,7 @@ func (sc StatConfig) String() string {
 }
 
 func (sc StatConfig) BucketKey(t time.Time, offset int) string {
-	return fmt.Sprintf("ss-metric:%s-%s-%s-%d", sc.Type, sc.Name, sc.Source, getFlushPeriodStart(t, offset).Unix())
+	return fmt.Sprintf("ss-metric:%s-%s-%s-%d", sc.Type, sc.Name, sc.Source, getStartOfFlushPeriod(t, offset).Unix())
 }
 
 // StatInterface defines the interface for the application to
@@ -60,7 +60,7 @@ type StatInterface interface {
 	IncrementCounterBy(name, source string, delta int64) error
 	RecordGauge(name, source string, value float64) error
 	RecordTiming(name, source string, value float64) error
-	UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error
+	UpdateBackend(periodStart time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error
 }
 
 func NewLoggingStatImplementation(c appengine.Context) StatInterface {
@@ -92,8 +92,8 @@ func (m LoggingStatImplementation) RecordTiming(name, source string, value float
 	return nil
 }
 
-func (m LoggingStatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error {
-	m.c.Debugf("UpdateBackend(%s, %#v, %#v, %t)", at, flusher, cfg, force)
+func (m LoggingStatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error {
+	m.c.Debugf("UpdateBackend(%s, %#v, %#v, %t)", periodStart, flusher, cfg, force)
 	return nil
 }
 
@@ -131,17 +131,17 @@ func (s StatImplementation) RecordTiming(name, source string, value float64) err
 	return s.recordGaugeOrTiming(scTypeTiming, name, source, value)
 }
 
-func (s StatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, flushConfig *FlusherConfig, force bool) error {
+func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFlusher, flushConfig *FlusherConfig, force bool) error {
 
 	if !force {
-		lastFlushedTime := s.getLastFlushTime()
-		if at.Sub(lastFlushedTime) < defaultAggregationPeriod {
-			s.c.Warningf("Refusing to update backend since it's too soon (last flushed at %s, aggregation period %s)", lastFlushedTime, defaultAggregationPeriod)
+		lastFlushedPeriod := s.getLastPeriodFlushed()
+		if periodStart.Sub(lastFlushedPeriod) < defaultAggregationPeriod {
+			s.c.Warningf("Refusing to update backend since it's too soon (last flush period %s, current period requested %s, aggregation period %s)", lastFlushedPeriod, periodStart, defaultAggregationPeriod)
 			return ErrStatFlushTooSoon
 		}
 	}
 
-	cfgMap, err := s.getActiveConfigs(at, 0)
+	cfgMap, err := s.getActiveConfigs(periodStart, 0)
 	if err != nil {
 		s.c.Errorf("Failed to get active buckets when updating backend: %s", err)
 		return err
@@ -220,7 +220,7 @@ func (s StatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, fl
 			s.c.Errorf("Failed to flush to backend: %s", err)
 			return err
 		} else {
-			s.updateLastFlushTime(at)
+			s.updateLastPeriodFlushed(periodStart)
 		}
 
 	}
@@ -473,22 +473,22 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value 
 
 }
 
-func (s StatImplementation) getLastFlushTime() time.Time {
-	var lastUpdated time.Time
-	if _, err := memcache.Gob.Get(s.c, "ss-lft", &lastUpdated); err != nil {
+func (s StatImplementation) getLastPeriodFlushed() time.Time {
+	var lastPeriodFlushed time.Time
+	if _, err := memcache.Gob.Get(s.c, "ss-lpf", &lastPeriodFlushed); err != nil {
 		return time.Time{}
 	}
-	return lastUpdated
+	return lastPeriodFlushed
 }
 
-func (s StatImplementation) updateLastFlushTime(flushTime time.Time) error {
+func (s StatImplementation) updateLastPeriodFlushed(lastPeriodFlushed time.Time) error {
 	return memcache.Gob.Set(s.c, &memcache.Item{
-		Key:    "ss-lft",
-		Object: &flushTime,
+		Key:    "ss-lpf",
+		Object: &lastPeriodFlushed,
 	})
 }
 
-func getFlushPeriodStart(at time.Time, offset int) time.Time {
+func getStartOfFlushPeriod(at time.Time, offset int) time.Time {
 	startOfPeriod := at.Truncate(defaultAggregationPeriod)
 	if offset != 0 {
 		startOfPeriod = startOfPeriod.Add(time.Duration(offset) * defaultAggregationPeriod)

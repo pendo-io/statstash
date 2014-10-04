@@ -30,7 +30,7 @@ func PeriodicStatsFlushHandlerCustom(c appengine.Context, stats StatInterface, f
 }
 
 func doFlush(c appengine.Context, stats StatInterface, flusher StatsFlusher, cfg *FlusherConfig) {
-	startOfLastPeriod := getFlushPeriodStart(time.Now(), -1)
+	startOfLastPeriod := getStartOfFlushPeriod(time.Now(), -1)
 	if err := stats.UpdateBackend(startOfLastPeriod, flusher, cfg, false); err != nil {
 		c.Errorf("Failed updating stats backend: %s", err)
 	} else {

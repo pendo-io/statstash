@@ -170,7 +170,7 @@ func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 	c.Assert(ssi.IncrementCounterBy("TestGetActiveConfigs.bar", "", int64(10)), IsNil)
 
 	now := time.Now()
-	bucketTs := getFlushPeriodStart(now, 0).Unix()
+	bucketTs := getStartOfFlushPeriod(now, 0).Unix()
 
 	cfgMap, err := ssi.getActiveConfigs(now, 0)
 	c.Assert(err, IsNil)
@@ -286,5 +286,18 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 
 	// Make sure that flushing again does nothing (i.e. don't force)
 	c.Assert(ssi.UpdateBackend(now, mockFlusher, nil, false), Equals, ErrStatFlushTooSoon)
+
+}
+
+func (s *StatStashTest) TestPeriodStart(c *C) {
+
+	utc, _ := time.LoadLocation("UTC")
+	ref := time.Date(2014, 10, 4, 12, 0, 0, 0, utc)
+
+	c.Check(getStartOfFlushPeriod(ref, 0).Unix(), Equals, ref.Unix())
+	c.Check(getStartOfFlushPeriod(ref.Add(1*time.Second), 0).Unix(), Equals, ref.Unix())
+
+	c.Check(getStartOfFlushPeriod(ref, -1).Unix(), Equals, ref.Add(defaultAggregationPeriod*time.Duration(-1)).Unix())
+	c.Check(getStartOfFlushPeriod(ref.Add(1*time.Second), -1).Unix(), Equals, ref.Add(defaultAggregationPeriod*time.Duration(-1)).Unix())
 
 }
