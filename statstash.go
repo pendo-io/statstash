@@ -166,7 +166,7 @@ func (s StatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, fl
 			cfgItem := cfgMap[k]
 			switch cfgItem.Type {
 			case scTypeTiming, scTypeGauge:
-				var gm []Measurement
+				var gm []float64
 				if err := memcache.Gob.Unmarshal(item.Value, &gm); err != nil {
 					s.c.Errorf("Bad data found in memcache: key %s, error: %s", k, err)
 					continue
@@ -176,22 +176,22 @@ func (s StatImplementation) UpdateBackend(at time.Time, flusher StatsFlusher, fl
 					count := len(gm)
 					for i, m := range gm {
 						if i == 0 {
-							min = m.Value
-							max = m.Value
+							min = m
+							max = m
 						} else {
-							if m.Value < min {
-								min = m.Value
+							if m < min {
+								min = m
 							}
-							if m.Value > max {
-								max = m.Value
+							if m > max {
+								max = m
 							}
 						}
-						sum += m.Value
-						sumSquares += math.Pow(m.Value, 2.0)
+						sum += m
+						sumSquares += math.Pow(m, 2.0)
 					}
 					datum = StatDataTiming{StatConfig: cfgItem, Count: count, Min: min, Max: max, Sum: sum, SumSquares: sumSquares}
 				} else {
-					datum = StatDataGauge{StatConfig: cfgItem, Value: gm[0].Value}
+					datum = StatDataGauge{StatConfig: cfgItem, Value: gm[0]}
 				}
 			case scTypeCounter:
 				count, _ := strconv.ParseUint(string(item.Value), 10, 64)
@@ -367,14 +367,14 @@ func (s StatImplementation) peekCounter(name, source string, at time.Time) (uint
 	}
 }
 
-func (s StatImplementation) peekGauge(name, source string, at time.Time) ([]Measurement, error) {
+func (s StatImplementation) peekGauge(name, source string, at time.Time) ([]float64, error) {
 
 	bucketKey, err := s.getBucketKey(scTypeGauge, name, source, time.Now())
 	if err != nil {
 		return nil, err
 	}
 
-	var gm []Measurement
+	var gm []float64
 	if _, err = memcache.Gob.Get(s.c, bucketKey, &gm); err != nil {
 		return nil, err
 	} else {
@@ -382,14 +382,14 @@ func (s StatImplementation) peekGauge(name, source string, at time.Time) ([]Meas
 	}
 }
 
-func (s StatImplementation) peekTiming(name, source string, at time.Time) ([]Measurement, error) {
+func (s StatImplementation) peekTiming(name, source string, at time.Time) ([]float64, error) {
 
 	bucketKey, err := s.getBucketKey(scTypeTiming, name, source, time.Now())
 	if err != nil {
 		return nil, err
 	}
 
-	var gm []Measurement
+	var gm []float64
 	if _, err = memcache.Gob.Get(s.c, bucketKey, &gm); err != nil {
 		return nil, err
 	} else {
@@ -405,12 +405,12 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value 
 		return err
 	}
 
-	var cached []Measurement
+	var cached []float64
 
 	for tries := 0; tries < 5; tries++ {
 		cachedItem, err := memcache.Gob.Get(s.c, bucketKey, &cached)
 		if err == memcache.ErrCacheMiss {
-			cached = make([]Measurement, 0)
+			cached = make([]float64, 0)
 		} else if err != nil {
 			// give up fast because something is wrong with memcache, probably
 			return err
@@ -418,10 +418,9 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value 
 
 		switch typ {
 		case scTypeTiming:
-			cached = append(cached, Measurement{Timestamp: now.Unix(), Value: value})
+			cached = append(cached, value)
 		case scTypeGauge:
-			cached = []Measurement{Measurement{Timestamp: now.Unix(), Value: value}}
-
+			cached = []float64{value}
 		}
 
 		if cachedItem != nil {
@@ -484,16 +483,6 @@ func getFlushPeriodStart(at time.Time, offset int) time.Time {
 	return startOfPeriod
 }
 
-type Measurement struct {
-	Timestamp int64
-	Value     float64
-}
-
-func (m Measurement) String() string {
-	fmtString := "[TS: %d, Value: %f]"
-	return fmt.Sprintf(fmtString, m.Timestamp, m.Value)
-}
-
 type StatDataCounter struct {
 	StatConfig
 	Count uint64
@@ -524,7 +513,7 @@ type StatDataGauge struct {
 }
 
 func (dg StatDataGauge) String() string {
-	return fmt.Sprintf("[Gauge: name=%s, source=%s] Value: %s",
+	return fmt.Sprintf("[Gauge: name=%s, source=%s] Value: %f",
 		dg.Name, dg.Source, dg.Value)
 }
 

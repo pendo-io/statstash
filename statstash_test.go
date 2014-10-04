@@ -94,17 +94,17 @@ func (s *StatStashTest) TestStatGauge(c *C) {
 	subA, err := ssi.peekGauge("TestStatGauge.subroutine", "A", now)
 	c.Assert(err, IsNil)
 	c.Assert(subA, HasLen, 1)
-	c.Check(subA[0].Value, Equals, 24.0)
+	c.Check(subA[0], Equals, 24.0)
 
 	subB, err := ssi.peekGauge("TestStatGauge.subroutine", "B", now)
 	c.Assert(err, IsNil)
 	c.Assert(subB, HasLen, 1)
-	c.Check(subB[0].Value, Equals, 15.5)
+	c.Check(subB[0], Equals, 15.5)
 
 	grand, err := ssi.peekGauge("TestStatGauge.grand_total", "", now)
 	c.Assert(err, IsNil)
 	c.Assert(grand, HasLen, 1)
-	c.Check(grand[0].Value, Equals, float64(7264534001))
+	c.Check(grand[0], Equals, float64(7264534001))
 
 	for i := 0; i < 10; i++ {
 		c.Assert(ssi.RecordGauge("TestStatGauge.upandtotheright", "", float64(i)), IsNil)
@@ -113,7 +113,7 @@ func (s *StatStashTest) TestStatGauge(c *C) {
 	upAndToTheRight, err := ssi.peekGauge("TestStatGauge.upandtotheright", "", now)
 	c.Assert(err, IsNil)
 	c.Assert(upAndToTheRight, HasLen, 1)
-	c.Check(upAndToTheRight[0].Value, Equals, float64(9))
+	c.Check(upAndToTheRight[0], Equals, float64(9))
 
 }
 
@@ -131,18 +131,18 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 	subA, err := ssi.peekTiming("TestStatTimings.subroutine", "A", now)
 	c.Assert(err, IsNil)
 	c.Assert(subA, HasLen, 1)
-	c.Check(subA[0].Value, Equals, 24.0)
+	c.Check(subA[0], Equals, 24.0)
 
 	subB, err := ssi.peekTiming("TestStatTimings.subroutine", "B", now)
 	c.Assert(err, IsNil)
 	c.Assert(subB, HasLen, 2)
-	c.Check(subB[0].Value, Equals, 10.0)
-	c.Check(subB[1].Value, Equals, 15.5)
+	c.Check(subB[0], Equals, 10.0)
+	c.Check(subB[1], Equals, 15.5)
 
 	grand, err := ssi.peekTiming("TestStatTimings.grand_total", "", now)
 	c.Assert(err, IsNil)
 	c.Assert(grand, HasLen, 1)
-	c.Check(grand[0].Value, Equals, 7264534001.0)
+	c.Check(grand[0], Equals, 7264534001.0)
 
 	for i := 0; i < 10; i++ {
 		c.Assert(ssi.RecordTiming("TestStatTimings.upandtotheright", "", float64(i)), IsNil)
@@ -151,7 +151,7 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 	upAndToTheRight, err := ssi.peekTiming("TestStatTimings.upandtotheright", "", now)
 	c.Assert(err, IsNil)
 	for i, metric := range upAndToTheRight {
-		c.Check(metric.Value, Equals, float64(i))
+		c.Check(metric, Equals, float64(i))
 	}
 
 }
@@ -254,11 +254,11 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 		nameAndSource := fmt.Sprintf("%s-%s", gauge.Name, gauge.Source)
 		switch nameAndSource {
 		case "TestFlushToBackend.foo-a":
-			c.Check(gauge.Value, Equals, 24.0)
+			c.Check(gauge, Equals, 24.0)
 		case "TestFlushToBackend.foo-b":
-			c.Check(gauge.Value, Equals, 15.5)
+			c.Check(gauge, Equals, 15.5)
 		case "TestFlushToBackend.bar-":
-			c.Check(gauge.Value, Equals, -1.2)
+			c.Check(gauge, Equals, -1.2)
 		}
 	}
 
