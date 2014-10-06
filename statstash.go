@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"sort"
 	"strconv"
 	"time"
@@ -37,6 +38,7 @@ const (
 )
 
 var ErrStatFlushTooSoon = errors.New("Too Soon to Flush Stats")
+var ErrStatNotSampled = errors.New("Skipped sample because sample rate given")
 
 type StatConfig struct {
 	Name     string    `datastore:",noindex" json:"name"`
@@ -59,7 +61,7 @@ type StatInterface interface {
 	IncrementCounter(name, source string) error
 	IncrementCounterBy(name, source string, delta int64) error
 	RecordGauge(name, source string, value float64) error
-	RecordTiming(name, source string, value float64) error
+	RecordTiming(name, source string, value, sampleRate float64) error
 	UpdateBackend(periodStart time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error
 }
 
@@ -87,8 +89,8 @@ func (m LoggingStatImplementation) RecordGauge(name, source string, value float6
 	return nil
 }
 
-func (m LoggingStatImplementation) RecordTiming(name, source string, value float64) error {
-	m.c.Debugf("RecordTiming(%s, %s, %f)", name, source, value)
+func (m LoggingStatImplementation) RecordTiming(name, source string, value, sampleRate float64) error {
+	m.c.Debugf("RecordTiming(%s, %s, %f, %f)", name, source, value, sampleRate)
 	return nil
 }
 
@@ -98,11 +100,12 @@ func (m LoggingStatImplementation) UpdateBackend(periodStart time.Time, flusher 
 }
 
 func NewStatInterface(c appengine.Context) StatInterface {
-	return StatImplementation{c}
+	return StatImplementation{c, rand.New(rand.NewSource(time.Now().UnixNano()))}
 }
 
 type StatImplementation struct {
-	c appengine.Context
+	c       appengine.Context
+	randGen *rand.Rand
 }
 
 func (s StatImplementation) IncrementCounter(name, source string) error {
@@ -124,11 +127,11 @@ func (s StatImplementation) IncrementCounterBy(name, source string, delta int64)
 }
 
 func (s StatImplementation) RecordGauge(name, source string, value float64) error {
-	return s.recordGaugeOrTiming(scTypeGauge, name, source, value)
+	return s.recordGaugeOrTiming(scTypeGauge, name, source, value, 1.0)
 }
 
-func (s StatImplementation) RecordTiming(name, source string, value float64) error {
-	return s.recordGaugeOrTiming(scTypeTiming, name, source, value)
+func (s StatImplementation) RecordTiming(name, source string, value, sampleRate float64) error {
+	return s.recordGaugeOrTiming(scTypeTiming, name, source, value, sampleRate)
 }
 
 func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFlusher, flushConfig *FlusherConfig, force bool) error {
@@ -410,7 +413,11 @@ func (s StatImplementation) peekTiming(name, source string, at time.Time) ([]flo
 	}
 }
 
-func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value float64) error {
+func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value, sampleRate float64) error {
+
+	if sampleRate < 1.0 && s.randGen.Float64() > sampleRate {
+		return ErrStatNotSampled // do nothing here, as we are sampling
+	}
 
 	now := time.Now()
 	bucketKey, err := s.getBucketKey(typ, name, source, now)

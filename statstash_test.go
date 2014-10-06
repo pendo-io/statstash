@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/mock"
 	. "gopkg.in/check.v1"
+	"math"
+	"math/rand"
 	"time"
 )
 
@@ -50,7 +52,7 @@ func (m *MockFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 
 func (s *StatStashTest) TestStatCounters(c *C) {
 
-	ssi := StatImplementation{s.Context}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
 
 	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
 	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
@@ -82,7 +84,7 @@ func (s *StatStashTest) TestStatCounters(c *C) {
 
 func (s *StatStashTest) TestStatGauge(c *C) {
 
-	ssi := StatImplementation{s.Context}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
 
 	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "A", 24.0), IsNil)
 	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "B", 10.0), IsNil)
@@ -119,12 +121,12 @@ func (s *StatStashTest) TestStatGauge(c *C) {
 
 func (s *StatStashTest) TestStatTimings(c *C) {
 
-	ssi := StatImplementation{s.Context}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
 
-	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "A", 24.0), IsNil)
-	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 10.0), IsNil)
-	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 15.5), IsNil)
-	c.Assert(ssi.RecordTiming("TestStatTimings.grand_total", "", 7264534001.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "A", 24.0, 1.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 10.0, 1.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 15.5, 1.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestStatTimings.grand_total", "", 7264534001.0, 1.0), IsNil)
 
 	now := time.Now()
 
@@ -145,7 +147,7 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 	c.Check(grand[0], Equals, 7264534001.0)
 
 	for i := 0; i < 10; i++ {
-		c.Assert(ssi.RecordTiming("TestStatTimings.upandtotheright", "", float64(i)), IsNil)
+		c.Assert(ssi.RecordTiming("TestStatTimings.upandtotheright", "", float64(i), 1.0), IsNil)
 	}
 
 	upAndToTheRight, err := ssi.peekTiming("TestStatTimings.upandtotheright", "", now)
@@ -158,7 +160,7 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 
 func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 
-	ssi := StatImplementation{s.Context}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
 
 	c.Assert(ssi.Purge(), IsNil)
 
@@ -188,7 +190,7 @@ func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 
 func (s *StatStashTest) TestFlushToBackend(c *C) {
 
-	ssi := StatImplementation{s.Context}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
 
 	mockFlusher := &MockFlusher{}
 
@@ -206,12 +208,12 @@ func (s *StatStashTest) TestFlushToBackend(c *C) {
 	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "anchorage", 15.5), IsNil)
 	c.Assert(ssi.RecordGauge("TestFlushToBackend.temperature", "buffalo", -1.2), IsNil)
 
-	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "A", 24.0), IsNil)
-	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 10.0), IsNil)
-	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 15.5), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "A", 24.0, 1.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 10.0, 1.0), IsNil)
+	c.Assert(ssi.RecordTiming("TestFlushToBackend.subroutine", "B", 15.5, 1.0), IsNil)
 
 	for i := 0; i < 10; i++ {
-		c.Assert(ssi.RecordTiming("TestFlushToBackend.upandtotheright", "", float64(i)), IsNil)
+		c.Assert(ssi.RecordTiming("TestFlushToBackend.upandtotheright", "", float64(i), 1.0), IsNil)
 	}
 
 	mockFlusher.On("Flush", mock.Anything, mock.Anything).Return(nil).Once()
@@ -299,5 +301,50 @@ func (s *StatStashTest) TestPeriodStart(c *C) {
 
 	c.Check(getStartOfFlushPeriod(ref, -1).Unix(), Equals, ref.Add(defaultAggregationPeriod*time.Duration(-1)).Unix())
 	c.Check(getStartOfFlushPeriod(ref.Add(1*time.Second), -1).Unix(), Equals, ref.Add(defaultAggregationPeriod*time.Duration(-1)).Unix())
+
+}
+
+type StatSamplingTestImplementation struct {
+	randGen *rand.Rand
+}
+
+func (c StatSamplingTestImplementation) IncrementCounter(name, source string) error { return nil }
+func (c StatSamplingTestImplementation) IncrementCounterBy(name, source string, delta int64) error {
+	return nil
+}
+func (c StatSamplingTestImplementation) RecordGauge(name, source string, value float64) error {
+	return nil
+}
+func (c StatSamplingTestImplementation) RecordTiming(name, source string, value, sampleRate float64) error {
+
+	// We use this code copied from the other code to prevent actually having to
+	// use memcache and blowing up the test suite.
+	if sampleRate < 1.0 && c.randGen.Float64() > sampleRate {
+		return ErrStatNotSampled // do nothing here, as we are sampling
+	}
+	return nil
+}
+func (c StatSamplingTestImplementation) UpdateBackend(periodStart time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error {
+	return nil
+}
+
+func (s *StatStashTest) TestTimingSampling(c *C) {
+	ssi := StatSamplingTestImplementation{rand.New(rand.NewSource(time.Now().UnixNano()))}
+
+	// Let's record a million timings at a sample rate of 0.0001.
+	// We'll expect 100 samples, give or take 50
+	statsSampled := 0
+	for i := 0; i < 1000000; i++ {
+		if err := ssi.RecordTiming("yowza", "fast", 1, 0.0001); err == ErrStatNotSampled {
+			continue
+		} else if err != nil {
+			// unexpected error, fail
+			c.Fail()
+		} else {
+			statsSampled++
+		}
+	}
+	fmt.Printf("Stats sampled %d\n", statsSampled)
+	c.Assert(math.Abs(100.0-float64(statsSampled)) <= 50.0, Equals, true)
 
 }

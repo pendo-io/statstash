@@ -39,8 +39,8 @@ func (m *MockStatImplementation) RecordGauge(name, source string, value float64)
 	return rargs.Error(0)
 }
 
-func (m *MockStatImplementation) RecordTiming(name, source string, value float64) error {
-	rargs := m.Called(name, source, value)
+func (m *MockStatImplementation) RecordTiming(name, source string, value, sampleRate float64) error {
+	rargs := m.Called(name, source, value, sampleRate)
 	return rargs.Error(0)
 }
 
