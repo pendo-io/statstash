@@ -21,6 +21,7 @@ import (
 	"appengine/urlfetch"
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 )
@@ -95,9 +96,16 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 
 	req, _ := http.NewRequest("POST", libratoApiEndpoint, bytes.NewBuffer([]byte(postdata.Encode())))
 	req.SetBasicAuth(cfg.Username, cfg.Password)
-	if _, err := lf.getHttpClient().Do(req); err != nil {
-		lf.c.Errorf("failed to log events to librato: %s", err.Error())
+	if resp, err := lf.getHttpClient().Do(req); err != nil {
+		lf.c.Errorf("Failed to flush events to Librato: HTTP error: %s", err.Error())
 		return err
+	} else if resp.StatusCode != 200 || resp.StatusCode != 204 {
+		defer resp.Body.Close()
+		if body, err := ioutil.ReadAll(resp.Body); err != nil {
+			lf.c.Errorf("Failed to flush events to Librato, and failed to read the response body: %s", err)
+		} else {
+			lf.c.Errorf("Failed to flush events to Librato: HTTP status code %d, response body: %s", resp.StatusCode, body)
+		}
 	}
 
 	return nil
