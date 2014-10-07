@@ -40,6 +40,24 @@ const (
 var ErrStatFlushTooSoon = errors.New("Too Soon to Flush Stats")
 var ErrStatNotSampled = errors.New("Skipped sample because sample rate given")
 
+type ErrStatDropped struct {
+	typ    string
+	name   string
+	source string
+	t      time.Time
+	value  float64
+	err    error
+}
+
+func NewErrStatDropped(typ, name, source string, t time.Time, value float64, err error) error {
+	return &ErrStatDropped{typ, name, source, t, value, err}
+}
+
+func (e *ErrStatDropped) Error() string {
+	return fmt.Sprintf("Stat not stored: [type/name/source: %s/%s/%s, time: %s, value: %f]. Reason: %s",
+		e.typ, e.name, e.source, e.t, e.value, e.err)
+}
+
 type StatConfig struct {
 	Name     string    `datastore:",noindex" json:"name"`
 	Source   string    `datastore:",noindex" json:"source"`
@@ -422,18 +440,22 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 	now := time.Now()
 	bucketKey, err := s.getBucketKey(typ, name, source, now)
 	if err != nil {
-		return err
+		wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
+		s.c.Warningf("%s (getting bucket key)", wrappedErr)
+		return wrappedErr
 	}
 
 	var cached []float64
+	var lastError error
 
 	for tries := 0; tries < 5; tries++ {
 		cachedItem, err := memcache.Gob.Get(s.c, bucketKey, &cached)
 		if err == memcache.ErrCacheMiss {
 			cached = make([]float64, 0)
 		} else if err != nil {
-			// give up fast because something is wrong with memcache, probably
-			return err
+			wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
+			s.c.Warningf("%s (getting value from memcache)", wrappedErr)
+			return wrappedErr
 		}
 
 		switch typ {
@@ -447,15 +469,26 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 			cachedItem.Object = &cached
 			if err := memcache.Gob.CompareAndSwap(s.c, cachedItem); err == nil {
 				return nil
-			} else if err == memcache.ErrCASConflict {
-				time.Sleep(time.Microsecond * 50)
-				continue // do it again from the top
+			} else if err == memcache.ErrCASConflict || appengine.IsTimeoutError(err) {
+				lastError = err
+				time.Sleep(time.Millisecond * 50)
+				continue
 			} else if err == memcache.ErrNotStored {
 				if err := memcache.Gob.Add(s.c, cachedItem); err == memcache.ErrNotStored {
 					return nil
+				} else if err == memcache.ErrNotStored || appengine.IsTimeoutError(err) {
+					lastError = err
+					time.Sleep(time.Millisecond * 50)
+					continue
+				} else {
+					wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
+					s.c.Warningf("%s (updating value in memcache via add after eviction)", wrappedErr)
+					return wrappedErr
 				}
 			} else {
-				return err // something went horribly wrong, bail
+				wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
+				s.c.Warningf("%s (updati value in memcache via CAS", wrappedErr)
+				return wrappedErr
 			}
 		}
 
@@ -467,16 +500,20 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 		}
 		if err := memcache.Gob.Add(s.c, newItem); err == nil {
 			return nil
-		} else if err == memcache.ErrNotStored {
-			// someone has jumped in front of us
-			time.Sleep(time.Microsecond * 500)
+		} else if err == memcache.ErrNotStored || appengine.IsTimeoutError(err) {
+			lastError = err
+			time.Sleep(time.Millisecond * 50)
 			continue
+		} else {
+			wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
+			s.c.Warningf("%s (storing new value in memcache)", wrappedErr)
+			return wrappedErr
 		}
-		return err
 	}
 
-	s.c.Errorf("Failed to store/update gauge for bucket %s: %s", bucketKey, err)
-	return fmt.Errorf("Failed to store/update gauge for bucket %s; too many failures.")
+	wrappedErr := NewErrStatDropped(typ, name, source, now, value, lastError)
+	s.c.Warningf("%s (gave up)", wrappedErr)
+	return wrappedErr
 
 }
 
