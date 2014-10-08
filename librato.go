@@ -62,8 +62,8 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 			counterCount++
 		case StatDataGauge:
 			sdg := data[i].(StatDataGauge)
-			postdata.Add(getPostKey("gauges", "name", counterCount), sdg.Name)
-			postdata.Add(getPostKey("gauges", "value", counterCount), fmt.Sprintf("%f", sdg.Value))
+			postdata.Add(getPostKey("gauges", "name", gaugeCount), sdg.Name)
+			postdata.Add(getPostKey("gauges", "value", gaugeCount), fmt.Sprintf("%f", sdg.Value))
 			if sdg.Source != "" {
 				postdata.Add(getPostKey("gauges", "source", gaugeCount), sdg.Source)
 			}
