@@ -83,6 +83,25 @@ type StatInterface interface {
 	UpdateBackend(periodStart time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error
 }
 
+func NewNullStatImplementation() StatInterface {
+	return NullStatImplementation{}
+}
+
+type NullStatImplementation struct {
+}
+
+func (m NullStatImplementation) IncrementCounter(name, source string) error { return nil }
+func (m NullStatImplementation) IncrementCounterBy(name, source string, delta int64) error {
+	return nil
+}
+func (m NullStatImplementation) RecordGauge(name, source string, value float64) error { return nil }
+func (m NullStatImplementation) RecordTiming(name, source string, value, sampleRate float64) error {
+	return nil
+}
+func (m NullStatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error {
+	return nil
+}
+
 func NewLoggingStatImplementation(c appengine.Context) StatInterface {
 	return LoggingStatImplementation{c}
 }
