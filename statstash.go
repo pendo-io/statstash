@@ -326,8 +326,6 @@ func (s StatImplementation) getActiveConfigs(at time.Time, offset int) (map[stri
 			break
 		}
 		bucketKey := sc.BucketKey(at, offset)
-		s.c.Debugf("Found %s, bucketKey %s", sc, bucketKey)
-
 		statConfigs[bucketKey] = sc
 	}
 	s.c.Debugf("Found %d stat configs (cutoff time %s)", len(statConfigs), cutoffTime)
