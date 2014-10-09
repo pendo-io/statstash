@@ -311,7 +311,6 @@ func (s StatImplementation) getActiveConfigs(at time.Time, offset int) (map[stri
 
 	var finalError error
 	cutoffTime := at.Add(time.Duration(time.Hour * 24 * -2))
-	s.c.Debugf("Looking for last read %s", cutoffTime)
 
 	q := datastore.NewQuery(dsKindStatConfig).Filter("LastRead >", cutoffTime)
 	iter := q.Run(s.c)
@@ -329,8 +328,8 @@ func (s StatImplementation) getActiveConfigs(at time.Time, offset int) (map[stri
 		s.c.Debugf("Found %s, bucketKey %s", sc, bucketKey)
 
 		statConfigs[bucketKey] = sc
-
 	}
+	s.c.Debugf("Found %d stat configs (cutoff time %s)", len(statConfigs), cutoffTime)
 	return statConfigs, finalError
 }
 
