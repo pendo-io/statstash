@@ -99,7 +99,7 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 	if resp, err := lf.getHttpClient().Do(req); err != nil {
 		lf.c.Errorf("Failed to flush events to Librato: HTTP error: %s", err.Error())
 		return err
-	} else if resp.StatusCode != 200 || resp.StatusCode != 204 {
+	} else if resp.StatusCode != 200 && resp.StatusCode != 204 {
 		defer resp.Body.Close()
 		if body, err := ioutil.ReadAll(resp.Body); err != nil {
 			lf.c.Errorf("Failed to flush events to Librato, and failed to read the response body: %s", err)
