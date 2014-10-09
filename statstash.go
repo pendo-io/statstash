@@ -255,14 +255,15 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 			data = append(data, datum)
 		}
 
-		// Now flush to the backend
-		if err := flusher.Flush(data, flushConfig); err != nil {
-			s.c.Errorf("Failed to flush to backend: %s", err)
-			return err
-		} else {
-			s.updateLastPeriodFlushed(periodStart)
+		if len(data) > 0 {
+			// Now flush to the backend
+			if err := flusher.Flush(data, flushConfig); err != nil {
+				s.c.Errorf("Failed to flush to backend: %s", err)
+				return err
+			} else {
+				s.updateLastPeriodFlushed(periodStart)
+			}
 		}
-
 	}
 
 	return nil
