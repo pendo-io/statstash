@@ -465,73 +465,33 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 	var cached []float64
 	var lastError error
 
-	for tries := 0; tries < 5; tries++ {
-		cachedItem, err := memcache.Gob.Get(s.c, bucketKey, &cached)
-		if err == memcache.ErrCacheMiss {
-			cached = make([]float64, 0)
-		} else if err != nil {
-			wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
-			s.c.Warningf("%s (getting value from memcache)", wrappedErr)
-			return wrappedErr
-		}
-
-		switch typ {
-		case scTypeTiming:
-			cached = append(cached, value)
-		case scTypeGauge:
-			cached = []float64{value}
-		}
-
-		if cachedItem != nil {
-			cachedItem.Object = &cached
-			if err := memcache.Gob.CompareAndSwap(s.c, cachedItem); err == nil {
-				return nil
-			} else if err == memcache.ErrCASConflict || appengine.IsTimeoutError(err) {
-				lastError = err
-				time.Sleep(time.Millisecond * 50)
-				continue
-			} else if err == memcache.ErrNotStored {
-				if err := memcache.Gob.Add(s.c, cachedItem); err == memcache.ErrNotStored {
-					return nil
-				} else if err == memcache.ErrNotStored || appengine.IsTimeoutError(err) {
-					lastError = err
-					time.Sleep(time.Millisecond * 50)
-					continue
-				} else {
-					wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
-					s.c.Warningf("%s (updating value in memcache via add after eviction)", wrappedErr)
-					return wrappedErr
-				}
-			} else {
-				wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
-				s.c.Warningf("%s (updati value in memcache via CAS", wrappedErr)
-				return wrappedErr
-			}
-		}
-
-		// If we made it this far, we'll need to just make a new item and store it
-		newItem := &memcache.Item{
+	cachedItem, err := memcache.Gob.Get(s.c, bucketKey, &cached)
+	if err == memcache.ErrCacheMiss {
+		cached = make([]float64, 0)
+		cachedItem = &memcache.Item{
 			Key:        bucketKey,
-			Object:     &cached,
 			Expiration: time.Duration(2 * defaultAggregationPeriod),
 		}
-		if err := memcache.Gob.Add(s.c, newItem); err == nil {
-			return nil
-		} else if err == memcache.ErrNotStored || appengine.IsTimeoutError(err) {
-			lastError = err
-			time.Sleep(time.Millisecond * 50)
-			continue
-		} else {
-			wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
-			s.c.Warningf("%s (storing new value in memcache)", wrappedErr)
-			return wrappedErr
-		}
+	} else if err != nil {
+		wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
+		s.c.Warningf("%s (getting value from memcache)", wrappedErr)
+		return wrappedErr
 	}
 
-	wrappedErr := NewErrStatDropped(typ, name, source, now, value, lastError)
-	s.c.Warningf("%s (gave up)", wrappedErr)
-	return wrappedErr
+	switch typ {
+	case scTypeTiming:
+		cached = append(cached, value)
+	case scTypeGauge:
+		cached = []float64{value}
+	}
 
+	cachedItem.Object = &cached
+	if err := memcache.Gob.Set(s.c, cachedItem); err != nil {
+		wrappedErr := NewErrStatDropped(typ, name, source, now, value, lastError)
+		s.c.Warningf("%s (failed to set value)", wrappedErr)
+		return wrappedErr
+	}
+	return nil
 }
 
 func (s StatImplementation) getLastPeriodFlushed() time.Time {
