@@ -52,7 +52,7 @@ func (m *MockFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 
 func (s *StatStashTest) TestStatCounters(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
 
 	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
 	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
@@ -84,7 +84,7 @@ func (s *StatStashTest) TestStatCounters(c *C) {
 
 func (s *StatStashTest) TestStatGauge(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
 
 	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "A", 24.0), IsNil)
 	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "B", 10.0), IsNil)
@@ -121,7 +121,7 @@ func (s *StatStashTest) TestStatGauge(c *C) {
 
 func (s *StatStashTest) TestStatTimings(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
 
 	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "A", 24.0, 1.0), IsNil)
 	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 10.0, 1.0), IsNil)
@@ -160,7 +160,7 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 
 func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
 
 	c.Assert(ssi.Purge(), IsNil)
 
@@ -190,7 +190,7 @@ func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 
 func (s *StatStashTest) TestFlushToBackend(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano()))}
+	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
 
 	mockFlusher := &MockFlusher{}
 

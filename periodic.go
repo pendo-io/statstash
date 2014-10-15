@@ -21,7 +21,7 @@ import (
 
 func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http.Request) {
 	c := appengine.NewContext(r)
-	stats := NewStatInterface(c)
+	stats := NewStatInterface(c, false)
 	doFlush(c, stats, flusher, cfg)
 }
 

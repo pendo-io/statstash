@@ -102,47 +102,14 @@ func (m NullStatImplementation) UpdateBackend(periodStart time.Time, flusher Sta
 	return nil
 }
 
-func NewLoggingStatImplementation(c appengine.Context) StatInterface {
-	return LoggingStatImplementation{c}
-}
-
-type LoggingStatImplementation struct {
-	c appengine.Context
-}
-
-// LoggingStatImplementation is a no-op interface for testing; logs to debug level only
-func (m LoggingStatImplementation) IncrementCounter(name, source string) error {
-	m.c.Debugf("IncrementCounter(%s, %s)", name, source)
-	return nil
-}
-
-func (m LoggingStatImplementation) IncrementCounterBy(name, source string, delta int64) error {
-	m.c.Debugf("IncrementCounterBy(%s, %s, %d)", name, source, delta)
-	return nil
-}
-
-func (m LoggingStatImplementation) RecordGauge(name, source string, value float64) error {
-	m.c.Debugf("RecordGauge(%s, %s, %f)", name, source, value)
-	return nil
-}
-
-func (m LoggingStatImplementation) RecordTiming(name, source string, value, sampleRate float64) error {
-	m.c.Debugf("RecordTiming(%s, %s, %f, %f)", name, source, value, sampleRate)
-	return nil
-}
-
-func (m LoggingStatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFlusher, cfg *FlusherConfig, force bool) error {
-	m.c.Debugf("UpdateBackend(%s, %#v, %#v, %t)", periodStart, flusher, cfg, force)
-	return nil
-}
-
-func NewStatInterface(c appengine.Context) StatInterface {
-	return StatImplementation{c, rand.New(rand.NewSource(time.Now().UnixNano()))}
+func NewStatInterface(c appengine.Context, debug bool) StatInterface {
+	return StatImplementation{c, rand.New(rand.NewSource(time.Now().UnixNano())), debug}
 }
 
 type StatImplementation struct {
 	c       appengine.Context
 	randGen *rand.Rand
+	debug   bool
 }
 
 func (s StatImplementation) IncrementCounter(name, source string) error {
@@ -150,7 +117,7 @@ func (s StatImplementation) IncrementCounter(name, source string) error {
 }
 
 func (s StatImplementation) IncrementCounterBy(name, source string, delta int64) error {
-
+	s.debugf("Increment counter/%s/%s: delta=%d", name, source, delta)
 	bucketKey, err := s.getBucketKey(scTypeCounter, name, source, time.Now())
 	if err != nil {
 		return err
@@ -328,7 +295,7 @@ func (s StatImplementation) getActiveConfigs(at time.Time, offset int) (map[stri
 		bucketKey := sc.BucketKey(at, offset)
 		statConfigs[bucketKey] = sc
 	}
-	s.c.Debugf("Found %d stat configs (cutoff time %s)", len(statConfigs), cutoffTime)
+	s.debugf("Found %d stat configs (cutoff time %s)", len(statConfigs), cutoffTime)
 	return statConfigs, finalError
 }
 
@@ -450,7 +417,10 @@ func (s StatImplementation) peekTiming(name, source string, at time.Time) ([]flo
 
 func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value, sampleRate float64) error {
 
+	s.debugf("Recording %s/%s/%s: value=%f, samplerate=%f)", typ, name, source, value, sampleRate)
+
 	if sampleRate < 1.0 && s.randGen.Float64() > sampleRate {
+		s.debugf("Not recording value due to sampling rate")
 		return ErrStatNotSampled // do nothing here, as we are sampling
 	}
 
@@ -515,6 +485,12 @@ func getStartOfFlushPeriod(at time.Time, offset int) time.Time {
 		startOfPeriod = startOfPeriod.Add(time.Duration(offset) * defaultAggregationPeriod)
 	}
 	return startOfPeriod
+}
+
+func (s StatImplementation) debugf(format string, args ...interface{}) {
+	if s.debug {
+		s.c.Debugf(format, args...)
+	}
 }
 
 type StatDataCounter struct {
