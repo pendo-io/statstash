@@ -331,7 +331,6 @@ func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig,
 
 	k := s.getStatConfigDatastoreKey(typ, name, source)
 	now := time.Now()
-	updateNeeded := false
 	cache := true
 
 	// Now query datastore
@@ -341,21 +340,14 @@ func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig,
 		sc.Name = name
 		sc.Source = source
 		sc.Type = typ
-		sc.LastRead = now
-		updateNeeded = true
-	} else {
-		if now.Sub(sc.LastRead) >= time.Duration(2*24*time.Hour) {
-			sc.LastRead = now
-			updateNeeded = true
-		}
 	}
 
+	sc.LastRead = now
+
 	// Store item in datastore if it needed the update
-	if updateNeeded {
-		if _, err := datastore.Put(s.c, k, &sc); err != nil {
-			s.c.Warningf("Failed to update StatConfig %s: %s", sc, err)
-			cache = false
-		}
+	if _, err := datastore.Put(s.c, k, &sc); err != nil {
+		s.c.Warningf("Failed to update StatConfig %s: %s", sc, err)
+		cache = false
 	}
 
 	// Only attempt adding if the update was needed and succeeded
