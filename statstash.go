@@ -1,4 +1,4 @@
-// Copyright 2014 pendo.io
+// Copyright 2014-2015 pendo.io
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,11 +17,14 @@
 package statstash
 
 import (
-	"appengine"
-	"appengine/datastore"
-	"appengine/memcache"
+	"bytes"
+	"encoding/gob"
 	"errors"
 	"fmt"
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/datastore"
+	"google.golang.org/appengine/memcache"
 	"math"
 	"math/rand"
 	"sort"
@@ -102,12 +105,20 @@ func (m NullStatImplementation) UpdateBackend(periodStart time.Time, flusher Sta
 	return nil
 }
 
-func NewStatInterface(c appengine.Context, debug bool) StatInterface {
-	return StatImplementation{c, rand.New(rand.NewSource(time.Now().UnixNano())), debug}
+func NewStatInterface(log appwrap.Logging, ds appwrap.Datastore, cache appwrap.Memcache, debug bool) StatInterface {
+	return StatImplementation{
+		log:     log,
+		ds:      ds,
+		cache:   cache,
+		randGen: rand.New(rand.NewSource(time.Now().UnixNano())),
+		debug:   debug,
+	}
 }
 
 type StatImplementation struct {
-	c       appengine.Context
+	log     appwrap.Logging
+	ds      appwrap.Datastore
+	cache   appwrap.Memcache
 	randGen *rand.Rand
 	debug   bool
 }
@@ -122,9 +133,10 @@ func (s StatImplementation) IncrementCounterBy(name, source string, delta int64)
 	if err != nil {
 		return err
 	}
+	s.log.Debugf("record bucketKey: %s", bucketKey)
 
-	if _, err = memcache.Increment(s.c, bucketKey, delta, 0); err != nil {
-		s.c.Warningf("Failed to increment %s delta %d", bucketKey, delta)
+	if _, err = s.cache.Increment(bucketKey, delta, 0); err != nil {
+		s.log.Warningf("Failed to increment %s delta %d", bucketKey, delta)
 	}
 
 	return err
@@ -143,14 +155,14 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 	if !force {
 		lastFlushedPeriod := s.getLastPeriodFlushed()
 		if periodStart.Sub(lastFlushedPeriod) < defaultAggregationPeriod {
-			s.c.Warningf("Refusing to update backend since it's too soon (last flush period %s, current period requested %s, aggregation period %s)", lastFlushedPeriod, periodStart, defaultAggregationPeriod)
+			s.log.Warningf("Refusing to update backend since it's too soon (last flush period %s, current period requested %s, aggregation period %s)", lastFlushedPeriod, periodStart, defaultAggregationPeriod)
 			return ErrStatFlushTooSoon
 		}
 	}
 
 	cfgMap, err := s.getActiveConfigs(periodStart, 0)
 	if err != nil {
-		s.c.Errorf("Failed to get active buckets when updating backend: %s", err)
+		s.log.Errorf("Failed to get active buckets when updating backend: %s", err)
 		return err
 	}
 
@@ -163,10 +175,9 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 		bucketKeys = append(bucketKeys, k)
 	}
 
-	if itemMap, err := memcache.GetMulti(s.c, bucketKeys); err != nil {
-		s.c.Errorf("Failed to fetch items from memcache when updating backend: %s", err)
+	if itemMap, err := s.cache.GetMulti(bucketKeys); err != nil {
+		s.log.Errorf("Failed to fetch items from memcache when updating backend: %s", err)
 	} else {
-
 		// Get our data from memcache in one go
 		data := make([]interface{}, 0, len(itemMap))
 		for k, item := range itemMap {
@@ -175,8 +186,8 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 			switch cfgItem.Type {
 			case scTypeTiming, scTypeGauge:
 				var gm []float64
-				if err := memcache.Gob.Unmarshal(item.Value, &gm); err != nil {
-					s.c.Errorf("Bad data found in memcache: key %s, error: %s", k, err)
+				if err := s.gobUnmarshal(item.Value, &gm); err != nil {
+					s.log.Errorf("Bad data found in memcache: key %s, error: %s", k, err)
 					continue
 				}
 				if len(gm) == 0 {
@@ -225,7 +236,7 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 		if len(data) > 0 {
 			// Now flush to the backend
 			if err := flusher.Flush(data, flushConfig); err != nil {
-				s.c.Errorf("Failed to flush to backend: %s", err)
+				s.log.Errorf("Failed to flush to backend: %s", err)
 				return err
 			} else {
 				s.updateLastPeriodFlushed(periodStart)
@@ -257,19 +268,19 @@ func (s StatImplementation) Purge() error {
 
 	}
 
-	if err := datastore.DeleteMulti(s.c, dsKeys); err != nil {
-		s.c.Errorf("Stats: purge datastore failed: %s", err)
+	if err := s.ds.DeleteMulti(dsKeys); err != nil {
+		s.log.Errorf("Stats: purge datastore failed: %s", err)
 		return err
 	}
 
-	memcache.DeleteMulti(s.c, memcacheKeys)
+	s.cache.DeleteMulti(memcacheKeys)
 	return nil
 }
 
 func (s StatImplementation) getAllConfigs() ([]StatConfig, error) {
-	q := datastore.NewQuery(dsKindStatConfig)
+	q := s.ds.NewQuery(dsKindStatConfig)
 	var cfgs []StatConfig
-	_, err := q.GetAll(s.c, &cfgs)
+	_, err := q.GetAll(&cfgs)
 	return cfgs, err
 }
 
@@ -280,15 +291,15 @@ func (s StatImplementation) getActiveConfigs(at time.Time, offset int) (map[stri
 	var finalError error
 	cutoffTime := at.Add(time.Duration(time.Hour * 24 * -2))
 
-	q := datastore.NewQuery(dsKindStatConfig).Filter("LastRead >", cutoffTime)
-	iter := q.Run(s.c)
+	q := s.ds.NewQuery(dsKindStatConfig).Filter("LastRead >", cutoffTime)
+	iter := q.Run()
 	for {
 		var sc StatConfig
 		_, err := iter.Next(&sc)
 		if err == datastore.Done {
 			break // end of iteration
 		} else if err != nil {
-			s.c.Warningf("Failed iterating stat config items to get active buckets: %s", err)
+			s.log.Warningf("Failed iterating stat config items to get active buckets: %s", err)
 			finalError = err
 			break
 		}
@@ -317,7 +328,7 @@ func (s StatImplementation) getStatConfigMemcacheKey(typ, name, source string) s
 }
 
 func (s StatImplementation) getStatConfigDatastoreKey(typ, name, source string) *datastore.Key {
-	return datastore.NewKey(s.c, dsKindStatConfig, s.getStatConfigKeyName(typ, name, source), 0, nil)
+	return s.ds.NewKey(dsKindStatConfig, s.getStatConfigKeyName(typ, name, source), 0, nil)
 }
 
 func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig, error) {
@@ -325,8 +336,12 @@ func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig,
 	var sc StatConfig
 
 	// First, query memcache
-	if _, err := memcache.Gob.Get(s.c, s.getStatConfigMemcacheKey(typ, name, source), &sc); err == nil {
-		return sc, nil
+	if item, err := s.cache.Get(s.getStatConfigMemcacheKey(typ, name, source)); err == nil {
+		if err := s.gobUnmarshal(item.Value, &sc); err != nil {
+			return StatConfig{}, err
+		} else {
+			return sc, nil
+		}
 	}
 
 	k := s.getStatConfigDatastoreKey(typ, name, source)
@@ -334,7 +349,7 @@ func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig,
 	cache := true
 
 	// Now query datastore
-	if err := datastore.Get(s.c, k, &sc); err != nil && err != datastore.ErrNoSuchEntity {
+	if err := s.ds.Get(k, &sc); err != nil && err != datastore.ErrNoSuchEntity {
 		return StatConfig{}, err
 	} else if err == datastore.ErrNoSuchEntity {
 		sc.Name = name
@@ -345,18 +360,23 @@ func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig,
 	sc.LastRead = now
 
 	// Store item in datastore if it needed the update
-	if _, err := datastore.Put(s.c, k, &sc); err != nil {
-		s.c.Warningf("Failed to update StatConfig %s: %s", sc, err)
+	if _, err := s.ds.Put(k, &sc); err != nil {
+		s.log.Warningf("Failed to update StatConfig %s: %s", sc, err)
 		cache = false
 	}
 
 	// Only attempt adding if the update was needed and succeeded
 	if cache {
-		memcache.Gob.Add(s.c, &memcache.Item{
-			Key:        s.getStatConfigMemcacheKey(typ, name, source),
-			Object:     &sc,
-			Expiration: time.Duration(24 * time.Hour),
-		})
+		if b, err := s.gobMarshal(&sc); err != nil {
+			s.log.Warningf("Failed to encode stat config item into memcache: %s", err)
+			return StatConfig{}, nil
+		} else {
+			s.cache.Add(&memcache.Item{
+				Key:        s.getStatConfigMemcacheKey(typ, name, source),
+				Value:      b,
+				Expiration: time.Duration(24 * time.Hour),
+			})
+		}
 	}
 
 	return sc, nil
@@ -370,7 +390,9 @@ func (s StatImplementation) peekCounter(name, source string, at time.Time) (uint
 		return uint64(0), err
 	}
 
-	if item, err := memcache.Get(s.c, bucketKey); err == nil {
+	s.log.Debugf("peek bucketKey: %s", bucketKey)
+
+	if item, err := s.cache.Get(bucketKey); err == nil {
 		return strconv.ParseUint(string(item.Value), 10, 64)
 	} else {
 		return uint64(0), err
@@ -385,9 +407,13 @@ func (s StatImplementation) peekGauge(name, source string, at time.Time) ([]floa
 	}
 
 	var gm []float64
-	if _, err = memcache.Gob.Get(s.c, bucketKey, &gm); err != nil {
+	if item, err := s.cache.Get(bucketKey); err != nil {
 		return nil, err
 	} else {
+		if s.gobUnmarshal(item.Value, &gm); err != nil {
+			s.log.Errorf("Error decoding gauge values: %s", err)
+			return nil, err
+		}
 		return gm, nil
 	}
 }
@@ -400,9 +426,13 @@ func (s StatImplementation) peekTiming(name, source string, at time.Time) ([]flo
 	}
 
 	var gm []float64
-	if _, err = memcache.Gob.Get(s.c, bucketKey, &gm); err != nil {
+	if item, err := s.cache.Get(bucketKey); err != nil {
 		return nil, err
 	} else {
+		if s.gobUnmarshal(item.Value, &gm); err != nil {
+			s.log.Errorf("Error decoding timing values: %s", err)
+			return nil, err
+		}
 		return gm, nil
 	}
 }
@@ -420,14 +450,16 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 	bucketKey, err := s.getBucketKey(typ, name, source, now)
 	if err != nil {
 		wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
-		s.c.Warningf("%s (getting bucket key)", wrappedErr)
+		s.log.Warningf("%s (getting bucket key)", wrappedErr)
 		return wrappedErr
 	}
+
+	s.log.Debugf("record bucketKey: %s", bucketKey)
 
 	var cached []float64
 	var lastError error
 
-	cachedItem, err := memcache.Gob.Get(s.c, bucketKey, &cached)
+	cachedItem, err := s.cache.Get(bucketKey)
 	if err == memcache.ErrCacheMiss {
 		cached = make([]float64, 0)
 		cachedItem = &memcache.Item{
@@ -436,8 +468,14 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 		}
 	} else if err != nil {
 		wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
-		s.c.Warningf("%s (getting value from memcache)", wrappedErr)
+		s.log.Warningf("%s (getting value from memcache)", wrappedErr)
 		return wrappedErr
+	} else {
+		if s.gobUnmarshal(cachedItem.Value, &cached); err != nil {
+			wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
+			s.log.Warningf("%s (decoding value from memcache)", wrappedErr)
+			return wrappedErr
+		}
 	}
 
 	switch typ {
@@ -447,28 +485,46 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 		cached = []float64{value}
 	}
 
-	cachedItem.Object = &cached
-	if err := memcache.Gob.Set(s.c, cachedItem); err != nil {
+	if b, err := s.gobMarshal(&cached); err != nil {
 		wrappedErr := NewErrStatDropped(typ, name, source, now, value, lastError)
-		s.c.Warningf("%s (failed to set value)", wrappedErr)
+		s.log.Warningf("%s (failed to encode new value)", wrappedErr)
 		return wrappedErr
+	} else {
+		cachedItem.Value = b
+		if err := s.cache.Set(cachedItem); err != nil {
+			wrappedErr := NewErrStatDropped(typ, name, source, now, value, lastError)
+			s.log.Warningf("%s (failed to set value)", wrappedErr)
+			return wrappedErr
+		}
 	}
 	return nil
 }
 
 func (s StatImplementation) getLastPeriodFlushed() time.Time {
 	var lastPeriodFlushed time.Time
-	if _, err := memcache.Gob.Get(s.c, "ss-lpf", &lastPeriodFlushed); err != nil {
+	if item, err := s.cache.Get("ss-lpf"); err != nil {
 		return time.Time{}
+	} else {
+		if err := s.gobUnmarshal(item.Value, &lastPeriodFlushed); err != nil {
+			s.log.Errorf("Failed to get last period flushed: %s", err)
+			return time.Time{}
+		}
 	}
+	s.log.Debugf("lastPeriodFlushed %s", lastPeriodFlushed)
 	return lastPeriodFlushed
 }
 
 func (s StatImplementation) updateLastPeriodFlushed(lastPeriodFlushed time.Time) error {
-	return memcache.Gob.Set(s.c, &memcache.Item{
-		Key:    "ss-lpf",
-		Object: &lastPeriodFlushed,
-	})
+	if b, err := s.gobMarshal(&lastPeriodFlushed); err != nil {
+		s.log.Errorf("Failed to set last period flushed: %s", err)
+		return err
+	} else {
+		s.log.Debugf("FOOOO")
+		return s.cache.Set(&memcache.Item{
+			Key:   "ss-lpf",
+			Value: b,
+		})
+	}
 }
 
 func getStartOfFlushPeriod(at time.Time, offset int) time.Time {
@@ -481,8 +537,20 @@ func getStartOfFlushPeriod(at time.Time, offset int) time.Time {
 
 func (s StatImplementation) debugf(format string, args ...interface{}) {
 	if s.debug {
-		s.c.Debugf(format, args...)
+		s.log.Debugf(format, args...)
 	}
+}
+
+func (s StatImplementation) gobMarshal(v interface{}) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (s StatImplementation) gobUnmarshal(data []byte, v interface{}) error {
+	return gob.NewDecoder(bytes.NewBuffer(data)).Decode(v)
 }
 
 type StatDataCounter struct {
@@ -537,11 +605,11 @@ type FlusherConfig struct {
 // LogOnlyStatsFlusher is used to "flush" stats for testing and development.
 // Stats that are flushed are logged only.
 type LogOnlyStatsFlusher struct {
-	c appengine.Context
+	log appwrap.Logging
 }
 
-func NewLogOnlyStatsFlusher(c appengine.Context) StatsFlusher {
-	return LogOnlyStatsFlusher{c}
+func NewLogOnlyStatsFlusher(c context.Context) StatsFlusher {
+	return LogOnlyStatsFlusher{appwrap.NewAppengineLogging(c)}
 }
 
 func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
@@ -555,7 +623,7 @@ func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) error
 		case StatDataGauge:
 			datum = data[i].(StatDataGauge)
 		}
-		f.c.Infof("%s", datum)
+		f.log.Infof("%s", datum)
 	}
 	return nil
 }

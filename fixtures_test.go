@@ -15,19 +15,14 @@
 package statstash
 
 import (
-	"appengine"
-	"appengine/aetest"
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
 	"gopkg.in/check.v1"
-	"net/http"
 	"testing"
 )
 
 type StatStashTest struct {
-	Context aetest.Context
-}
-
-func (s *StatStashTest) ContextFn(*http.Request) appengine.Context {
-	return s.Context
+	Context context.Context
 }
 
 var _ = check.Suite(&StatStashTest{})
@@ -35,13 +30,5 @@ var _ = check.Suite(&StatStashTest{})
 func TestStatStash(t *testing.T) { check.TestingT(t) }
 
 func (s *StatStashTest) SetUpSuite(c *check.C) {
-	if context, err := aetest.NewContext(&aetest.Options{StronglyConsistentDatastore: true}); err != nil {
-		c.Fatal(err)
-	} else {
-		s.Context = context
-	}
-}
-
-func (s *StatStashTest) TearDownSuite(c *check.C) {
-	s.Context.Close()
+	s.Context = appwrap.StubContext()
 }

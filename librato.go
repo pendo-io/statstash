@@ -17,10 +17,11 @@
 package statstash
 
 import (
-	"appengine"
-	"appengine/urlfetch"
 	"bytes"
 	"fmt"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/log"
+	"google.golang.org/appengine/urlfetch"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -32,10 +33,10 @@ const (
 
 // LibratoStatsFlusher is used to flush stats to the Librato metrics service.
 type LibratoStatsFlusher struct {
-	c appengine.Context
+	c context.Context
 }
 
-func NewLibratoStatsFlusher(c appengine.Context) StatsFlusher {
+func NewLibratoStatsFlusher(c context.Context) StatsFlusher {
 	return LibratoStatsFlusher{c}
 }
 
@@ -92,19 +93,19 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 		}
 	}
 
-	lf.c.Debugf("Flushing data to Librato: %#v", postdata)
+	log.Debugf(lf.c, "Flushing data to Librato: %#v", postdata)
 
 	req, _ := http.NewRequest("POST", libratoApiEndpoint, bytes.NewBuffer([]byte(postdata.Encode())))
 	req.SetBasicAuth(cfg.Username, cfg.Password)
 	if resp, err := lf.getHttpClient().Do(req); err != nil {
-		lf.c.Errorf("Failed to flush events to Librato: HTTP error: %s", err.Error())
+		log.Errorf(lf.c, "Failed to flush events to Librato: HTTP error: %s", err.Error())
 		return err
 	} else if resp.StatusCode != 200 && resp.StatusCode != 204 {
 		defer resp.Body.Close()
 		if body, err := ioutil.ReadAll(resp.Body); err != nil {
-			lf.c.Errorf("Failed to flush events to Librato, and failed to read the response body: %s", err)
+			log.Errorf(lf.c, "Failed to flush events to Librato, and failed to read the response body: %s", err)
 		} else {
-			lf.c.Errorf("Failed to flush events to Librato: HTTP status code %d, response body: %s", resp.StatusCode, body)
+			log.Errorf(lf.c, "Failed to flush events to Librato: HTTP status code %d, response body: %s", resp.StatusCode, body)
 		}
 	}
 

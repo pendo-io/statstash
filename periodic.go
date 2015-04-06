@@ -14,26 +14,28 @@
 package statstash
 
 import (
-	"appengine"
+	"github.com/pendo-io/appwrap"
+	"google.golang.org/appengine"
 	"net/http"
 	"time"
 )
 
 func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http.Request) {
 	c := appengine.NewContext(r)
-	stats := NewStatInterface(c, false)
-	doFlush(c, stats, flusher, cfg)
+	log := appwrap.NewAppengineLogging(c)
+	stats := NewStatInterface(log, appwrap.NewAppengineDatastore(c), appwrap.NewAppengineMemcache(c), false)
+	doFlush(log, stats, flusher, cfg)
 }
 
-func PeriodicStatsFlushHandlerCustom(c appengine.Context, stats StatInterface, flusher StatsFlusher, cfg *FlusherConfig) {
-	doFlush(c, stats, flusher, cfg)
+func PeriodicStatsFlushHandlerCustom(log appwrap.Logging, stats StatInterface, flusher StatsFlusher, cfg *FlusherConfig) {
+	doFlush(log, stats, flusher, cfg)
 }
 
-func doFlush(c appengine.Context, stats StatInterface, flusher StatsFlusher, cfg *FlusherConfig) {
+func doFlush(log appwrap.Logging, stats StatInterface, flusher StatsFlusher, cfg *FlusherConfig) {
 	startOfLastPeriod := getStartOfFlushPeriod(time.Now(), -1)
 	if err := stats.UpdateBackend(startOfLastPeriod, flusher, cfg, false); err != nil {
-		c.Errorf("Failed updating stats backend: %s", err)
+		log.Errorf("Failed updating stats backend: %s", err)
 	} else {
-		c.Infof("Updated stats backend")
+		log.Infof("Updated stats backend")
 	}
 }

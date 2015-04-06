@@ -18,10 +18,12 @@ package statstash
 
 import (
 	"fmt"
+	"github.com/pendo-io/appwrap"
 	"github.com/stretchr/testify/mock"
 	. "gopkg.in/check.v1"
 	"math"
 	"math/rand"
+	"os"
 	"time"
 )
 
@@ -50,9 +52,15 @@ func (m *MockFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 	return rargs.Error(0)
 }
 
+func (s *StatStashTest) newTestStatsStash() StatImplementation {
+	ssi := NewStatInterface(appwrap.NewWriterLogger(os.Stderr), appwrap.NewLocalDatastore(), appwrap.NewLocalMemcache(), true).(StatImplementation)
+	ssi.randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
+	return ssi
+}
+
 func (s *StatStashTest) TestStatCounters(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
+	ssi := s.newTestStatsStash()
 
 	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
 	c.Assert(ssi.IncrementCounter("TestStatCounters.foo", "a"), IsNil)
@@ -84,7 +92,7 @@ func (s *StatStashTest) TestStatCounters(c *C) {
 
 func (s *StatStashTest) TestStatGauge(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
+	ssi := s.newTestStatsStash()
 
 	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "A", 24.0), IsNil)
 	c.Assert(ssi.RecordGauge("TestStatGauge.subroutine", "B", 10.0), IsNil)
@@ -121,7 +129,7 @@ func (s *StatStashTest) TestStatGauge(c *C) {
 
 func (s *StatStashTest) TestStatTimings(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
+	ssi := s.newTestStatsStash()
 
 	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "A", 24.0, 1.0), IsNil)
 	c.Assert(ssi.RecordTiming("TestStatTimings.subroutine", "B", 10.0, 1.0), IsNil)
@@ -160,7 +168,7 @@ func (s *StatStashTest) TestStatTimings(c *C) {
 
 func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
+	ssi := s.newTestStatsStash()
 
 	c.Assert(ssi.Purge(), IsNil)
 
@@ -190,7 +198,7 @@ func (s *StatStashTest) TestGetActiveConfigs(c *C) {
 
 func (s *StatStashTest) TestFlushToBackend(c *C) {
 
-	ssi := StatImplementation{s.Context, rand.New(rand.NewSource(time.Now().UnixNano())), true}
+	ssi := s.newTestStatsStash()
 
 	mockFlusher := &MockFlusher{}
 
