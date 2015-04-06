@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/memcache"
 	"math"
@@ -608,8 +607,8 @@ type LogOnlyStatsFlusher struct {
 	log appwrap.Logging
 }
 
-func NewLogOnlyStatsFlusher(c context.Context) StatsFlusher {
-	return LogOnlyStatsFlusher{appwrap.NewAppengineLogging(c)}
+func NewLogOnlyStatsFlusher(log appwrap.Logging) StatsFlusher {
+	return LogOnlyStatsFlusher{log}
 }
 
 func (f LogOnlyStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
