@@ -456,7 +456,6 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 	s.log.Debugf("record bucketKey: %s", bucketKey)
 
 	var cached []float64
-	var lastError error
 
 	cachedItem, err := s.cache.Get(bucketKey)
 	if err == memcache.ErrCacheMiss {
@@ -485,13 +484,13 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 	}
 
 	if b, err := s.gobMarshal(&cached); err != nil {
-		wrappedErr := NewErrStatDropped(typ, name, source, now, value, lastError)
+		wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
 		s.log.Warningf("%s (failed to encode new value)", wrappedErr)
 		return wrappedErr
 	} else {
 		cachedItem.Value = b
 		if err := s.cache.Set(cachedItem); err != nil {
-			wrappedErr := NewErrStatDropped(typ, name, source, now, value, lastError)
+			wrappedErr := NewErrStatDropped(typ, name, source, now, value, err)
 			s.log.Warningf("%s (failed to set value)", wrappedErr)
 			return wrappedErr
 		}
