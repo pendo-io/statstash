@@ -23,7 +23,11 @@ import (
 func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http.Request) {
 	c := appengine.NewContext(r)
 	log := appwrap.NewAppengineLogging(c)
-	stats := NewStatInterface(log, appwrap.NewAppengineDatastore(c), appwrap.NewAppengineMemcache(c), false)
+	ds, err := appwrap.NewDatastore(c)
+	if err != nil {
+		panic(err)
+	}
+	stats := NewStatInterface(log, ds, appwrap.NewAppengineMemcache(c), false)
 	doFlush(log, stats, flusher, cfg)
 }
 
