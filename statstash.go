@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/pendo-io/appwrap"
-	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/memcache"
 	"math"
 	"math/rand"
@@ -258,7 +257,7 @@ func (s StatImplementation) Purge() error {
 	}
 
 	now := time.Now()
-	dsKeys := make([]*datastore.Key, 0, len(sc))
+	dsKeys := make([]*appwrap.DatastoreKey, 0, len(sc))
 	memcacheKeys := make([]string, 0, len(sc))
 	for _, cfg := range sc {
 		dsKeys = append(dsKeys, s.getStatConfigDatastoreKey(cfg.Type, cfg.Name, cfg.Source))
@@ -295,7 +294,7 @@ func (s StatImplementation) getActiveConfigs(at time.Time, offset int) (map[stri
 	for {
 		var sc StatConfig
 		_, err := iter.Next(&sc)
-		if err == datastore.Done {
+		if err == appwrap.DatastoreDone {
 			break // end of iteration
 		} else if err != nil {
 			s.log.Warningf("Failed iterating stat config items to get active buckets: %s", err)
@@ -326,7 +325,7 @@ func (s StatImplementation) getStatConfigMemcacheKey(typ, name, source string) s
 	return fmt.Sprintf("ss-conf:%s", s.getStatConfigKeyName(typ, name, source))
 }
 
-func (s StatImplementation) getStatConfigDatastoreKey(typ, name, source string) *datastore.Key {
+func (s StatImplementation) getStatConfigDatastoreKey(typ, name, source string) *appwrap.DatastoreKey {
 	return s.ds.NewKey(dsKindStatConfig, s.getStatConfigKeyName(typ, name, source), 0, nil)
 }
 
@@ -348,9 +347,9 @@ func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig,
 	cache := true
 
 	// Now query datastore
-	if err := s.ds.Get(k, &sc); err != nil && err != datastore.ErrNoSuchEntity {
+	if err := s.ds.Get(k, &sc); err != nil && err != appwrap.ErrNoSuchEntity {
 		return StatConfig{}, err
-	} else if err == datastore.ErrNoSuchEntity {
+	} else if err == appwrap.ErrNoSuchEntity {
 		sc.Name = name
 		sc.Source = source
 		sc.Type = typ
