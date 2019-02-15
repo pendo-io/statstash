@@ -21,13 +21,13 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"google.golang.org/appengine/memcache"
 	"math"
 	"math/rand"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/pendo-io/appwrap"
 )
 
 const (
@@ -369,7 +369,7 @@ func (s StatImplementation) getStatConfig(typ, name, source string) (StatConfig,
 			s.log.Warningf("Failed to encode stat config item into memcache: %s", err)
 			return StatConfig{}, nil
 		} else {
-			s.cache.Add(&memcache.Item{
+			s.cache.Add(&appwrap.CacheItem{
 				Key:        s.getStatConfigMemcacheKey(typ, name, source),
 				Value:      b,
 				Expiration: time.Duration(24 * time.Hour),
@@ -457,9 +457,9 @@ func (s StatImplementation) recordGaugeOrTiming(typ, name, source string, value,
 	var cached []float64
 
 	cachedItem, err := s.cache.Get(bucketKey)
-	if err == memcache.ErrCacheMiss {
+	if err == appwrap.ErrCacheMiss {
 		cached = make([]float64, 0)
-		cachedItem = &memcache.Item{
+		cachedItem = &appwrap.CacheItem{
 			Key:        bucketKey,
 			Expiration: time.Duration(2 * defaultAggregationPeriod),
 		}
@@ -517,7 +517,7 @@ func (s StatImplementation) updateLastPeriodFlushed(lastPeriodFlushed time.Time)
 		return err
 	} else {
 		s.log.Debugf("FOOOO")
-		return s.cache.Set(&memcache.Item{
+		return s.cache.Set(&appwrap.CacheItem{
 			Key:   "ss-lpf",
 			Value: b,
 		})
