@@ -18,13 +18,14 @@ package statstash
 
 import (
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"github.com/stretchr/testify/mock"
-	. "gopkg.in/check.v1"
 	"math"
 	"math/rand"
 	"os"
 	"time"
+
+	"github.com/pendo-io/appwrap"
+	"github.com/stretchr/testify/mock"
+	. "gopkg.in/check.v1"
 )
 
 type MockFlusher struct {
@@ -53,7 +54,7 @@ func (m *MockFlusher) Flush(data []interface{}, cfg *FlusherConfig) error {
 }
 
 func (s *StatStashTest) newTestStatsStash() StatImplementation {
-	ssi := NewStatInterface(appwrap.NewWriterLogger(os.Stderr), appwrap.NewLocalDatastore(), appwrap.NewLocalMemcache(), true).(StatImplementation)
+	ssi := NewStatInterface(appwrap.NewWriterLogger(os.Stderr), appwrap.NewLocalDatastore(false, nil), appwrap.NewLocalMemcache(), true).(StatImplementation)
 	ssi.randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
 	return ssi
 }
