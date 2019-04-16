@@ -27,7 +27,7 @@ func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http
 	if err != nil {
 		panic(err)
 	}
-	stats := NewStatInterface(log, ds, appwrap.NewAppengineMemcache(c), false)
+	stats := NewStatInterface(log, ds, appwrap.NewAppengineMemcache(c, "", ""), false)
 	doFlush(log, stats, flusher, cfg)
 }
 
