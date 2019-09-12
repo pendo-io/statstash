@@ -168,7 +168,7 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 		return nil // nothing to do
 	}
 
-	bucketKeys := make([]string, len(cfgMap))
+	bucketKeys := make([]string, 0, len(cfgMap))
 	for k := range cfgMap {
 		bucketKeys = append(bucketKeys, k)
 	}
