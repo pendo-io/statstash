@@ -14,10 +14,11 @@
 package statstash
 
 import (
-	"github.com/pendo-io/appwrap"
-	"google.golang.org/appengine"
 	"net/http"
 	"time"
+
+	"github.com/pendo-io/appwrap"
+	"google.golang.org/appengine"
 )
 
 func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http.Request) {
@@ -27,7 +28,7 @@ func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http
 	if err != nil {
 		panic(err)
 	}
-	stats := NewStatInterface(log, ds, appwrap.NewAppengineMemcache(c, "", ""), false)
+	stats := NewStatInterface(log, ds, appwrap.NewAppengineMemcache(c, "", "", 0), false)
 	doFlush(log, stats, flusher, cfg)
 }
 
