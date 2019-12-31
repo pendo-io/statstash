@@ -18,17 +18,10 @@ import (
 	"time"
 
 	"github.com/pendo-io/appwrap"
-	"google.golang.org/appengine"
 )
 
-func PeriodicStatsFlushHandler(flusher StatsFlusher, cfg *FlusherConfig, r *http.Request) {
-	c := appengine.NewContext(r)
-	log := appwrap.NewAppengineLogging(c)
-	ds, err := appwrap.NewDatastore(c)
-	if err != nil {
-		panic(err)
-	}
-	stats := NewStatInterface(log, ds, appwrap.NewAppengineMemcache(c, "", "", 0), false)
+func PeriodicStatsFlushHandler(ds appwrap.Datastore, flusher StatsFlusher, cfg *FlusherConfig, r *http.Request, cache appwrap.Memcache, log appwrap.Logging) {
+	stats := NewStatInterface(log, ds, cache, false)
 	doFlush(log, stats, flusher, cfg)
 }
 
