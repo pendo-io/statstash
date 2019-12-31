@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/urlfetch"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -33,7 +32,7 @@ const (
 
 // LibratoStatsFlusher is used to flush stats to the Librato metrics service.
 type LibratoStatsFlusher struct {
-	c context.Context
+	c   context.Context
 	log appwrap.Logging
 }
 
@@ -98,6 +97,7 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 	lf.log.Debugf("Flushing data to Librato: %#v", postdata)
 
 	req, _ := http.NewRequest("POST", libratoApiEndpoint, bytes.NewBuffer([]byte(postdata.Encode())))
+	req.Header = map[string][]string{"Content-Type": {"application/x-www-form-urlencoded"}}
 	req.SetBasicAuth(cfg.Username, cfg.Password)
 	if resp, err := lf.getHttpClient().Do(req); err != nil {
 		lf.log.Errorf("Failed to flush events to Librato: HTTP error: %s", err.Error())
@@ -115,5 +115,5 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 }
 
 func (lf LibratoStatsFlusher) getHttpClient() *http.Client {
-	return urlfetch.Client(lf.c)
+	return http.DefaultClient
 }
