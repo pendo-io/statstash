@@ -133,8 +133,15 @@ func (s StatImplementation) IncrementCounterBy(name, source string, delta int64)
 	}
 	s.log.Debugf("record bucketKey: %s", bucketKey)
 
-	if _, err = s.cache.Increment(bucketKey, delta, 0); err != nil {
+	if _, err = s.cache.IncrementExisting(bucketKey, delta); err != nil {
 		s.log.Warningf("Failed to increment %s delta %d", bucketKey, delta)
+		data, _ := s.gobMarshal([]float64{float64(delta)})
+		cachedItem := &appwrap.CacheItem{
+			Value:      data,
+			Key:        bucketKey,
+			Expiration: time.Duration(2 * defaultAggregationPeriod),
+		}
+		s.cache.Add(cachedItem)
 	}
 
 	return err
