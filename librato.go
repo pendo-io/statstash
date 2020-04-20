@@ -87,6 +87,13 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 			postdata.Add(getPostKey("gauges", "count", gaugeCount), fmt.Sprintf("%d", sdt.NinthDecileCount))
 			postdata.Add(getPostKey("gauges", "max", gaugeCount), fmt.Sprintf("%f", sdt.NinthDecileValue))
 			postdata.Add(getPostKey("gauges", "sum", gaugeCount), fmt.Sprintf("%f", sdt.NinthDecileSum))
+			gaugeCount++
+
+			// Send a 99.9th percentile metric
+			postdata.Add(getPostKey("gauges", "name", gaugeCount), sdt.Name+".99.9")
+			postdata.Add(getPostKey("gauges", "count", gaugeCount), fmt.Sprintf("%d", sdt.ThreeNinesCount))
+			postdata.Add(getPostKey("gauges", "max", gaugeCount), fmt.Sprintf("%f", sdt.ThreeNinesValue))
+			postdata.Add(getPostKey("gauges", "sum", gaugeCount), fmt.Sprintf("%f", sdt.ThreeNinesSum))
 			if sdt.Source != "" {
 				postdata.Add(getPostKey("gauges", "source", gaugeCount), sdt.Source)
 			}
