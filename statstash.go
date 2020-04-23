@@ -212,20 +212,41 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 					} else {
 						median = gm[(count / 2)]
 					}
-					ninthdecileCount := int(math.Ceil(0.9 * float64(count)))
-					ninthdecileValue := gm[ninthdecileCount-1]
+
+					const ninthDecile = 0.9
+					const threeNinesPercentile = 0.999
+					ninthdecileCount, ninthdecileValue :=  getPercentileCount(gm, ninthDecile, count)
+					threeNinesCount, threeNinesValue :=  getPercentileCount(gm, threeNinesPercentile, count)
+
 					ninthdecileSum := 0.0
+					threeNinesSum := 0.0
 					for i, m := range gm {
 						if i < ninthdecileCount {
 							ninthdecileSum += m
 						}
+
+						if i < threeNinesCount {
+							threeNinesSum += m
+						}
+
 						sum += m
 						sumSquares += math.Pow(m, 2.0)
 					}
-					datum = StatDataTiming{StatConfig: cfgItem, Count: count,
-						Min: min, Max: max, Sum: sum, SumSquares: sumSquares,
-						Median: median, NinthDecileCount: ninthdecileCount,
-						NinthDecileSum: ninthdecileSum, NinthDecileValue: ninthdecileValue}
+					datum = StatDataTiming{
+						StatConfig: cfgItem,
+						Count: count,
+						Min: min,
+						Max: max,
+						Sum: sum,
+						SumSquares: sumSquares,
+						Median: median,
+						NinthDecileCount: ninthdecileCount,
+						NinthDecileSum: ninthdecileSum,
+						NinthDecileValue: ninthdecileValue,
+						ThreeNinesCount: threeNinesCount,
+						ThreeNinesSum: threeNinesSum,
+						ThreeNinesValue: threeNinesValue,
+					}
 				} else {
 					datum = StatDataGauge{StatConfig: cfgItem, Value: gm[0]}
 				}
@@ -251,6 +272,12 @@ func (s StatImplementation) UpdateBackend(periodStart time.Time, flusher StatsFl
 
 	return nil
 
+}
+
+func getPercentileCount(gm []float64, percentile float64, count int) (int, float64) {
+	ninthdecileCount := int(math.Ceil(percentile * float64(count)))
+	ninthdecileValue := gm[ninthdecileCount-1]
+	return ninthdecileCount, ninthdecileValue
 }
 
 func (s StatImplementation) Purge() error {
@@ -578,11 +605,14 @@ type StatDataTiming struct {
 	NinthDecileValue float64
 	NinthDecileSum   float64
 	NinthDecileCount int
+	ThreeNinesValue float64
+	ThreeNinesSum   float64
+	ThreeNinesCount int
 }
 
 func (dt StatDataTiming) String() string {
-	return fmt.Sprintf("[Timing: name=%s, source=%s] Count: %d, Min: %f, Max: %f, Sum: %f, SumSquares: %f, Median: %f, 90th percentile (count: %d, value: %f, sum: %f):",
-		dt.Name, dt.Source, dt.Count, dt.Min, dt.Max, dt.Sum, dt.SumSquares, dt.Median, dt.NinthDecileCount, dt.NinthDecileValue, dt.NinthDecileSum)
+	return fmt.Sprintf("[Timing: name=%s, source=%s] Count: %d, Min: %f, Max: %f, Sum: %f, SumSquares: %f, Median: %f, 90th percentile (count: %d, value: %f, sum: %f), 99.9th percentile (count: %d, value: %f, sum: %f):",
+		dt.Name, dt.Source, dt.Count, dt.Min, dt.Max, dt.Sum, dt.SumSquares, dt.Median, dt.NinthDecileCount, dt.NinthDecileValue, dt.NinthDecileSum, dt.ThreeNinesCount, dt.ThreeNinesValue, dt.ThreeNinesSum)
 }
 
 type StatDataGauge struct {
