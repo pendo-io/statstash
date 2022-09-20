@@ -17,13 +17,12 @@
 package statstash
 
 import (
-	"bytes"
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
-	"io/ioutil"
 	"net/http"
 	"net/url"
+
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -102,21 +101,6 @@ func (lf LibratoStatsFlusher) Flush(data []interface{}, cfg *FlusherConfig) erro
 	}
 
 	lf.log.Debugf("Flushing data to Librato: %#v", postdata)
-
-	req, _ := http.NewRequest("POST", libratoApiEndpoint, bytes.NewBuffer([]byte(postdata.Encode())))
-	req.Header = map[string][]string{"Content-Type": {"application/x-www-form-urlencoded"}}
-	req.SetBasicAuth(cfg.Username, cfg.Password)
-	if resp, err := lf.getHttpClient().Do(req); err != nil {
-		lf.log.Errorf("Failed to flush events to Librato: HTTP error: %s", err.Error())
-		return err
-	} else if resp.StatusCode != 200 && resp.StatusCode != 204 {
-		defer resp.Body.Close()
-		if body, err := ioutil.ReadAll(resp.Body); err != nil {
-			lf.log.Errorf("Failed to flush events to Librato, and failed to read the response body: %s", err)
-		} else {
-			lf.log.Errorf("Failed to flush events to Librato: HTTP status code %d, response body: %s", resp.StatusCode, body)
-		}
-	}
 
 	return nil
 }
